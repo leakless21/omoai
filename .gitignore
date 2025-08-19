@@ -1,0 +1,29 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Virtual environments
+.venv/
+
+# Test-related
+.pytest_cache/
+
+# Data and models
+src/omoai/data/output/
+data/output/
+data/input/
+chunkformer-large-vie/
+models/
+*.log
+*.dryrun.json
+sample_asr.json
+
+# Nested git repository
+src/omoai/chunkformer/
+
+# OS-specific
+.DS_Store

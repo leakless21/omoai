@@ -1,0 +1,112 @@
+paths:
+  # Local path to the cloned ChunkFormer source
+  chunkformer_dir: /home/cetech/omoai/chunkformer
+  # Local path to Hugging Face checkpoint repo (downloaded/rsynced locally)
+  chunkformer_checkpoint: /home/cetech/omoai/models/chunkformer/chunkformer-large-vie
+  # Output directory for intermediate and final artifacts
+  out_dir: /home/cetech/omoai/data/output
+
+asr:
+  # Max total duration (seconds) per batch that your GPU can handle
+  total_batch_duration_s: 1800
+  # ChunkFormer decoding parameters (match decode.py semantics)
+  chunk_size: 64
+  left_context_size: 128
+  right_context_size: 128
+  # Runtime
+  device: cuda
+  autocast_dtype: fp16 # one of: fp32 | bf16 | fp16
+
+llm:
+  model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
+  quantization: auto # let vLLM infer if model specifies compressed-tensors
+  max_model_len: 50000
+  gpu_memory_utilization: 0.90
+  max_num_seqs: 2
+  max_num_batched_tokens: 512
+  trust_remote_code: true # WARNING: enables arbitrary code execution from model repo
+
+punctuation:
+  llm:
+    model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
+    quantization: auto
+    max_model_len: 50000
+    gpu_memory_utilization: 0.90
+    max_num_seqs: 2
+    max_num_batched_tokens: 512
+    trust_remote_code: true
+  preserve_original_words: false
+  # Segmented batching configuration
+  auto_switch_ratio: 0.98 # ratio of model context used for token budget
+  auto_margin_tokens: 128 # safety margin tokens reserved for output
+  # Output quality controls
+  adopt_case: true # adopt LLM capitalization when words match
+  enable_paragraphs: true # enable paragraph breaks based on timing gaps
+  # Legacy paragraph formatting (used when enable_paragraphs=true)
+  join_separator: " "
+  paragraph_gap_seconds: 3.0
+  system_prompt: |
+    <task>
+    Bạn là trình biên tập tiếng Việt chuyên sửa dấu câu và viết hoa.
+    Mục tiêu: nhận chuỗi tiếng Việt mộc (không/ít dấu câu), trả về CHÍNH XÁC cùng nội dung nhưng:
+    - Thêm đúng dấu câu: . , ? ! …
+    - Viết hoa chữ cái đầu câu và tên riêng (nếu rõ ràng).
+    - Chuẩn hoá khoảng trắng; không chèn khoảng trắng trước dấu câu.
+    - Không thay đổi thứ tự từ; không thêm/bớt thông tin.
+    - Được phép chuẩn hoá chính tả tiếng Anh phiên âm (ví dụ: "phây-búc" → "Facebook"), viết tắt ("ai" → "AI") khi hiển nhiên.
+    - KHÔNG thêm bất kỳ lời giải thích, nhãn, markdown, trích dẫn, hoặc lặp lại input.
+    - Nếu không chắc, giữ nguyên từ gốc và CHỈ thêm dấu câu/viết hoa.
+    Đầu ra: CHỈ văn bản thuần (plain text) một đoạn; không có dòng/trailing spaces thừa.
+
+    Ví dụ:
+    <input>xin chao moi nguoi hom nay troi dep</input>
+    <output>Xin chào mọi người, hôm nay trời đẹp.</output>
+
+    <input>toi dang xem mot buoi lai trim tren phay buc ve tri tue nhan tao ai</input>
+    <output>Tôi đang xem một buổi livestream trên Facebook về trí tuệ nhân tạo AI.</output>
+    </task>
+  sampling:
+    temperature: 0.0
+
+summarization:
+  llm:
+    model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
+    quantization: auto
+    max_model_len: 50000
+    gpu_memory_utilization: 0.90
+    max_num_seqs: 2
+    max_num_batched_tokens: 512
+    trust_remote_code: true
+  map_reduce: false # set true for very long transcripts
+  auto_switch_ratio: 0.98 # switch to map-reduce if total_tokens > ratio * max_model_len - auto_margin_tokens
+  auto_margin_tokens: 256 # safety margin (tokens) subtracted from the threshold
+  system_prompt: |
+    <instruction>
+    You are a Vietnamese text analysis engine. Your task is to generate a summary of the input text and format it as a single, valid JSON object.
+    - The JSON object must contain exactly two keys: "bullets" and "abstract".
+    - The "bullets" value must be an array of 3 to 7 concise Vietnamese strings (max 20 words each).
+    - The "abstract" value must be a string containing a 2-3 sentence summary in Vietnamese.
+    - Do not output any text before or after the JSON object.
+    - The summary must be based exclusively on the provided text.
+    </instruction>
+    <example>
+    <input>Hệ thống nhận dạng giọng nói đã trở thành một công nghệ phổ biến. Nó được sử dụng trong nhiều ứng dụng từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả.</input>
+    <output>
+    {
+      "bullets": [
+        "Hệ thống nhận dạng giọng nói là công nghệ phổ-biến.",
+        "Nó có nhiều ứng dụng như trợ-lý ảo và điều-khiển xe hơi.",
+        "Công nghệ này giúp tăng sự tiện lợi và hiệu quả."
+      ],
+      "abstract": "Hệ thống nhận dạng giọng nói là một công nghệ phổ biến được sử dụng trong nhiều ứng dụng, từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả cho người dùng."
+    }
+    </output>
+    </example>
+  sampling:
+    temperature: 0.7
+
+output:
+  write_separate_files: true
+  transcript_file: transcript.txt
+  summary_file: summary.txt
+  wrap_width: 0
