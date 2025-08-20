@@ -36,16 +36,21 @@ This script is responsible for preparing the raw audio file for the ASR model.
 - **Interface:** Takes the raw audio file path and the designated output path as input. It outputs the path to the preprocessed WAV file.
 - **Dependencies:** `pydub` (for audio manipulation), `ffmpeg`.
 
-### 2.3. ASR Component (`scripts/asr.py`)
+### 2.3. ASR Component
 
-The ASR component is the heart of the speech recognition process, utilizing the `Chunkformer` model.
+The ASR component is the heart of the speech recognition process, utilizing the `Chunkformer` model. It is implemented both as a standalone script ([`scripts/asr.py`](scripts/asr.py:0)) and as an API controller ([`src/omoai/api/asr_controller.py`](src/omoai/api/asr_controller.py:0)).
 
 - **Area of Responsibility:** Converting preprocessed audio into a text transcript with timestamps.
-- **Technical Requirements:** Must load the pre-trained `Chunkformer` model from the path specified in [`config.yaml`](config.yaml:0). It must process audio in chunks to handle long-form content efficiently.
+- **Technical Requirements:** Must load the pre-trained `Chunkformer` model from the path specified in [`config.yaml`](config.yaml:0). It must process audio in chunks to handle long-form content efficiently. The model is loaded once at application startup and reused across requests.
 - **Compute:** GPU-bound for optimal performance, leveraging `torch` for neural network inference.
 - **Storage:** Reads the preprocessed WAV file and writes the raw ASR output as a JSON file.
-- **Interface:** Takes the path to the preprocessed audio and the output directory as input. It outputs a JSON file containing the transcript and timestamps.
-- **Dependencies:** `torch`, `torchaudio`, the `Chunkformer` model files located in [`chunkformer/`](chunkformer/:0) and [`models/`](models/:0).
+- **Interface:**
+  - **Script Interface:** Takes the path to the preprocessed audio and the output directory as input. It outputs a JSON file containing the transcript and timestamps.
+  - **API Interface:** Accepts `ASRRequest` with `preprocessed_path` and returns `ASRResponse` with `transcript_raw` and `segments`.
+- **Key Classes:**
+  - [`ASRModel`](src/omoai/api/asr_controller.py:15): Singleton class that manages model loading and audio processing.
+  - [`ASRController`](src/omoai/api/asr_controller.py:219): Litestar controller that handles HTTP requests.
+- **Dependencies:** `torch`, `torchaudio`, `pydub`, the `Chunkformer` model files located in [`chunkformer/`](chunkformer/:0) and [`models/`](models/:0).</search>
 
 ### 2.4. Post-processing Component (`scripts/post.py`)
 
@@ -74,6 +79,24 @@ This domain encapsulates the custom ASR model.
 - **Interface:** Exposes methods for encoding and decoding audio.
 - **Dependencies:** `torch`, `torchaudio`.
 
+### 2.6. API Component (`src/omoai/api/`)
+
+This component is responsible for exposing the audio processing pipeline via a RESTful API, allowing for programmatic access to the system's functionalities.
+
+- **Area of Responsibility:** Provides a web-based interface for submitting audio files and receiving processed transcripts and summaries. Leverages existing `scripts/` modules for efficient processing with progress monitoring.
+- **Technical Requirements:** Built using the Litestar framework for fast, modern, and extensible API development. Uses script wrappers to call existing processing modules, eliminating the need for model preloading.
+- **Compute:** Lightweight for request handling. Processing is delegated to existing scripts which handle GPU/CPU resource management.
+- **Storage:** Interacts with other components to process data. Uses temporary files for intermediate processing steps.
+- **Interface:** Exposes RESTful endpoints for the main pipeline (`/pipeline`), as well as individual stages (`/preprocess`, `/asr`, `/postprocess`), plus health check (`/health`).
+- **Key Features:**
+  - **Progress Monitoring:** Real-time stdout/stderr output from Chunkformer and vLLM processing
+  - **Large File Support:** Handles up to 100MB audio files
+  - **Simplified Architecture:** No model preloading, direct script integration
+  - **Error Handling:** Comprehensive error reporting with detailed messages
+- **Dependencies:** `litestar`, `pydantic` (for data validation). Processing dependencies are managed by the underlying scripts.</search>
+
+</search>
+
 ## 3. Data Flow
 
 The data flows through the system in a linear, sequential manner:
@@ -84,7 +107,19 @@ The data flows through the system in a linear, sequential manner:
 4. **Post-processing:** [`scripts/post.py`](scripts/post.py:0) reads `asr.json` and produces `final.json`, `transcript.txt`, and `summary.txt`.
 5. **Output:** All processed files are stored in the `data/output/` directory, organized by a unique identifier for each run.
 
-## 4. Configuration
+### 4. API Integration
+
+The API component provides HTTP endpoints that wrap the script calls:
+
+1. **API Request:** Client uploads audio file via `/pipeline` endpoint (multipart/form-data, up to 100MB)
+2. **API Processing:** API manages temporary files and calls scripts in sequence:
+   - Preprocess: Audio conversion via ffmpeg
+   - ASR: Chunkformer model processing with progress output
+   - Post-process: vLLM punctuation and summarization with progress output
+3. **API Response:** API returns final results as JSON with transcript, summary, and segments
+4. **Progress Monitoring:** Real-time stdout/stderr from scripts visible in API server terminal
+
+## 5. Configuration
 
 The entire system's behavior is controlled by [`config.yaml`](config.yaml:0), which is structured into the following sections:
 

@@ -1,0 +1,1 @@
+"""No-op dependency module retained for compatibility (scripts used directly)."""

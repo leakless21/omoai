@@ -27,6 +27,8 @@ The API is designed to be used as a series of steps, where the output of one ste
 
 Alternatively, the client can use the `/pipeline` endpoint to run all the steps in a single call.
 
+**Note**: The API now leverages the existing `scripts/` modules directly for processing, which provides better performance and allows progress monitoring through stdout/stderr output in the API server terminal.
+
 ## 3. API Structure and Controllers
 
 To keep our API organized and easy to maintain, we will use Litestar's `Controller` feature. A controller is a class that groups related API endpoints together. We will create a controller for each major piece of functionality in our application.
@@ -61,41 +63,105 @@ These models define the structure of the data that our API expects to receive in
 
 These models define the structure of the data that our API will send back in the response.
 
--   **`PipelineResponse`**: This model will be used for the main pipeline endpoint. It will contain the final results of the pipeline, including the `transcript` (the full punctuated transcript), the `summary` (a dictionary containing the summary of the transcript), and the `segments` (a list of transcript segments with timestamps).
+-   **`PipelineResponse`**: This model contains the final results of the pipeline, including the `summary` (a dictionary containing the summary of the transcript) and the `segments` (a list of transcript segments with timestamps and both raw and punctuated text).
 
--   **`PreprocessResponse`**: This model will be used for the preprocessing endpoint. It will have an `output_path` field with the path to the preprocessed file on the server.
+-   **`PreprocessResponse`**: This model contains an `output_path` field with the path to the preprocessed file on the server.
 
--   **`ASRResponse`**: This model will be used for the ASR endpoint. It will contain the `transcript_raw` (the raw, unpunctuated transcript) and the `segments` (a list of transcript segments with timestamps).
+-   **`ASRResponse`**: This model contains the `segments` (a list of transcript segments with timestamps and raw text).
 
--   **`PostprocessResponse`**: This model will be used for the post-processing stage. It will contain the `transcript_punct` (the punctuated transcript) and the `summary` (a dictionary containing the summary of the transcript).
+-   **`PostprocessResponse`**: This model contains the `summary` (a dictionary containing the summary) and the `segments` (updated with punctuated text for each segment).
+
+**Note**: The API no longer returns full transcript fields (`transcript_raw`, `transcript_punct`) to reduce redundancy, as all text content is available in the segmented format with timestamps.
 
 ## 5. API Endpoints
 
-Here is a detailed description of the API endpoints that we will create:
+Here is a detailed description of the API endpoints that we have implemented:
 
--   **`POST /pipeline`**: This endpoint will run the entire audio processing pipeline. You will send a `POST` request to this endpoint with an audio file in the request body. The API will then run the preprocessing, ASR, and post-processing stages in sequence and return a `PipelineResponse` with the final transcript and summary.
+-   **`POST /pipeline`**: This endpoint runs the entire audio processing pipeline in a single request. Send a `POST` request with an audio file (multipart/form-data). The API runs preprocessing, ASR, and post-processing stages sequentially and returns a `PipelineResponse` with the summary and timestamped segments containing both raw and punctuated text. Supports up to 100MB audio files.
 
--   **`POST /preprocess`**: This endpoint will run only the audio preprocessing stage. You will send a `POST` request to this endpoint with an audio file in the request body. The API will preprocess the audio and return a `PreprocessResponse` with the path to the preprocessed file.
+-   **`POST /preprocess`**: This endpoint handles audio preprocessing. Send a `POST` request with an audio file (multipart/form-data). The API converts the audio to 16kHz mono PCM16 WAV format and returns a `PreprocessResponse` with the path to the preprocessed file.
 
--   **`POST /asr`**: This endpoint will run only the ASR stage. You will send a `POST` request to this endpoint with the path to a preprocessed audio file in the request body. The API will perform speech recognition and return an `ASRResponse` with the raw transcript.
+-   **`POST /asr`**: This endpoint performs speech recognition using the Chunkformer model. Send a `POST` request with the path to a preprocessed audio file (JSON body). The API returns an `ASRResponse` with timestamped segments containing raw transcribed text.
 
--   **`POST /postprocess`**: This endpoint will run only the post-processing stage. You will send a `POST` request to this endpoint with the JSON output from the ASR stage in the request body. The API will add punctuation to the transcript and generate a summary, and return a `PostprocessResponse` with the final results.
+-   **`POST /postprocess`**: This endpoint adds punctuation and generates summaries using vLLM. Send a `POST` request with the ASR output (JSON body). The API returns a `PostprocessResponse` with the summary and segments updated with punctuated text.
 
-## 6. Error Handling
+-   **`GET /health`**: This endpoint provides health check information. Returns a simple status response to verify the API is running.
 
-Our API will use standard HTTP status codes to let you know if a request was successful or not. For example, if a request is successful, the API will return a `200 OK` status code. If there is a problem with the request, it will return a `400 Bad Request` status code. If there is a problem on the server, it will return a `500 Internal Server Error` status code.
+## 6. Progress Monitoring
 
-In addition to the status code, the response body for an error will contain a `message` field with a detailed explanation of what went wrong. For example, if you forget to include the audio file in a request, the error message might say something like "The 'audio_file' field is required."
+The API now provides real-time progress monitoring through stdout/stderr output. When running processing requests, you can see:
 
-## 7. Running the API
+- **FFmpeg preprocessing progress**: Audio conversion status and file size information
+- **Chunkformer ASR progress**: Model loading, feature extraction, and inference progress
+- **vLLM processing progress**: LLM initialization, token processing, and generation progress
 
-To run the API, you will first need to make sure that you have activated the virtual environment by running `source .venv/bin/activate`. Then, you can run the API using the `litestar` command-line tool. The command to run the API is `litestar run --app src.omoai.api.app:app`.
+All progress information is displayed in the terminal where the API server is running, making it easy to monitor long-running requests.
 
-For development, it is very useful to run the API with the `--reload` flag, like this: `litestar run --app src.omoai.api.app:app --reload`. This will automatically restart the server whenever you make a change to the code, so you don't have to stop and start the server manually every time you make a change.
+## 7. Error Handling
 
-## 8. Testing the API
+Our API uses standard HTTP status codes to indicate request success or failure:
+- `200 OK`: Request successful
+- `400 Bad Request`: Invalid request data or missing parameters
+- `413 Request Entity Too Large`: File exceeds 100MB limit
+- `500 Internal Server Error`: Server-side processing error
+
+Error responses include a detailed message explaining what went wrong. The API also provides progress output even during error conditions to help with debugging.
+
+## 8. Configuration
+
+The API uses the main `config.yaml` file for all settings. The API-specific configuration section includes:
+
+```yaml
+api:
+  # Server configuration
+  host: "0.0.0.0"
+  port: 8000
+  # Request limits
+  max_body_size_mb: 100
+  request_timeout_seconds: 300
+  # File handling
+  temp_dir: "/tmp"
+  cleanup_temp_files: true
+  # Progress output
+  enable_progress_output: true
+  # Health check configuration
+  health_check_dependencies:
+    - ffmpeg
+    - config_file
+    - asr_script
+    - postprocess_script
+```
+
+You can modify these settings to customize the API behavior according to your environment.
+
+## 9. Running the API
+
+To run the API, ensure you're in the virtual environment and use the `litestar` command-line tool:
+
+```bash
+# Using uv (recommended) - no need to manually activate venv
+uv run litestar --app src.omoai.api.app:app run --host 0.0.0.0 --port 8000
+
+# Or if you prefer to activate the venv first:
+# source .venv/bin/activate
+# litestar --app src.omoai.api.app:app run --host 0.0.0.0 --port 8000
+```
+
+For development, use the `--reload` flag to automatically restart on code changes:
+
+```bash
+uv run litestar --app src.omoai.api.app:app run --host 0.0.0.0 --port 8000 --reload
+```
+
+The API will automatically load configuration from `config.yaml` and apply the settings for request limits, file handling, and other operational parameters.
+
+## 10. Testing the API
 
 Once the API is running, you can test it by sending requests to it using a tool like `curl`. Here are some example `curl` commands for each endpoint:
+
+-   **Testing the health check:**
+    
+    `curl http://127.0.0.1:8000/health`
 
 -   **Testing the `/pipeline` endpoint**:
 
@@ -114,3 +180,36 @@ Once the API is running, you can test it by sending requests to it using a tool 
     `curl -X POST -H "Content-Type: application/json" -d '{"asr_output": {"transcript_raw": "hello world", "segments": []}}' http://127.0.0.1:8000/postprocess`
 
 Remember to replace `/path/to/your/audio.mp3` and `/path/to/your/preprocessed.wav` with the actual paths to your audio files.
+
+## Example API Response
+
+The `/pipeline` endpoint returns an optimized response format:
+
+```json
+{
+  "summary": {
+    "bullets": [
+      "First key point from the audio content",
+      "Second important point discussed",
+      "Third main topic covered"
+    ],
+    "abstract": "A concise 2-3 sentence summary of the entire audio content."
+  },
+  "segments": [
+    {
+      "start": "00:00:00:000",
+      "end": "00:00:05:120",
+      "text_raw": "hello world this is a test",
+      "text_punct": "Hello world, this is a test."
+    },
+    {
+      "start": "00:00:05:120", 
+      "end": "00:00:10:240",
+      "text_raw": "another segment of speech",
+      "text_punct": "Another segment of speech."
+    }
+  ]
+}
+```
+
+This format eliminates redundant full transcript fields while preserving all information in the timestamped segments.

@@ -15,7 +15,6 @@ wheels/
 # Data and models
 src/omoai/data/output/
 data/output/
-data/input/
 chunkformer-large-vie/
 models/
 *.log
@@ -23,7 +22,8 @@ models/
 sample_asr.json
 
 # Nested git repository
-src/omoai/chunkformer/
+.cursorignore
+data/input/
 
 # OS-specific
 .DS_Store

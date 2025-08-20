@@ -94,6 +94,33 @@ python main.py data/input/podcast_episode.mp3
 # data/output/podcast_episode-<unique-id>/
 ```
 
+### REST API
+
+The project also provides a REST API for programmatic access:
+
+1. **Start the API server:**
+   ```bash
+   uv run litestar --app src.omoai.api.app:app run --host 0.0.0.0 --port 8000
+   ```
+
+2. **Process audio via API:**
+   ```bash
+   curl -X POST http://localhost:8000/pipeline -F "audio_file=@data/input/audio_file.mp3"
+   ```
+
+3. **Check API health:**
+   ```bash
+   curl http://localhost:8000/health
+   ```
+
+**API Features:**
+- Supports up to 100MB audio files
+- Real-time progress monitoring via server stdout
+- Full pipeline processing in one request
+- Individual stage endpoints available (`/preprocess`, `/asr`, `/postprocess`)
+
+For detailed API documentation, see [`docs/API_PLAN.md`](docs/API_PLAN.md).
+
 ## Project Structure
 
 ```
@@ -113,6 +140,14 @@ python main.py data/input/podcast_episode.mp3
 │   ├── preprocess.py       # Audio preprocessing
 │   ├── asr.py              # ASR transcription
 │   └── post.py             # Post-processing (punctuation, summary)
+├── src/omoai/              # Main package
+│   ├── api/                # REST API components
+│   │   ├── app.py          # API application setup
+│   │   ├── controllers/    # API endpoint controllers
+│   │   ├── models.py       # Pydantic models for requests/responses
+│   │   ├── services.py     # Business logic layer
+│   │   └── scripts/        # Script wrappers for API integration
+│   └── main.py             # Command-line interface
 └── tests/                  # Unit tests
 ```
 
@@ -122,6 +157,7 @@ For more detailed information, please refer to the documentation in the `docs/` 
 
 - [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md:0): Functional and non-functional requirements.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md:0): Detailed system architecture and component interactions.
+- [`docs/API_PLAN.md`](docs/API_PLAN.md:0): Comprehensive API documentation and usage examples.
 - [`docs/COMPONENT_MAIN_DOCS.md`](docs/COMPONENT_MAIN_DOCS.md:0): Documentation for the main application domain.
 - [`docs/COMPONENT_CHUNKFORMER_DOCS.md`](docs/COMPONENT_CHUNKFORMER_DOCS.md:0): Documentation for the Chunkformer ASR model domain.
 

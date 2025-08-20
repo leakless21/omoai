@@ -110,3 +110,22 @@ output:
   transcript_file: transcript.txt
   summary_file: summary.txt
   wrap_width: 0
+
+api:
+  # Server configuration
+  host: "0.0.0.0"
+  port: 8000
+  # Request limits
+  max_body_size_mb: 100
+  request_timeout_seconds: 300
+  # File handling
+  temp_dir: "/tmp"
+  cleanup_temp_files: true
+  # Progress output
+  enable_progress_output: true
+  # Health check configuration
+  health_check_dependencies:
+    - ffmpeg
+    - config_file
+    - asr_script
+    - postprocess_script
