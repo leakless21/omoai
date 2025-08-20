@@ -13,7 +13,7 @@ wheels/
 .pytest_cache/
 
 # Data and models
-src/omoai/data/output/
+data/input/
 data/output/
 chunkformer-large-vie/
 models/
