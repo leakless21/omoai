@@ -23,7 +23,6 @@ sample_asr.json
 
 # Nested git repository
 .cursorignore
-data/input/
 
 # OS-specific
 .DS_Store

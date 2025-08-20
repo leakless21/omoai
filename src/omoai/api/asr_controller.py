@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -9,6 +10,9 @@ from litestar.datastructures import State
 from pydub import AudioSegment  # type: ignore
 
 from src.omoai.api.models import ASRRequest, ASRResponse
+
+# Environment flag for debug GPU memory clearing
+DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() == "true"
 
 
 class ASRModel:
@@ -132,10 +136,10 @@ class ASRModel:
         }
         amp_dtype = dtype_map.get(self.config["autocast_dtype"], None)
 
-        from contextlib import nullcontext
-        ctx = torch.autocast(device.type, amp_dtype) if amp_dtype is not None else nullcontext()
-
-        with torch.no_grad(), ctx:
+        # Use explicit autocast for better performance
+        ctx = torch.autocast(device.type, dtype=amp_dtype, enabled=(amp_dtype is not None))
+        # Use inference_mode for better performance over no_grad
+        with torch.inference_mode(), ctx:
             for idx, _ in enumerate(range(0, xs.shape[1], truncated_context_size * subsampling_factor)):
                 start = max(truncated_context_size * subsampling_factor * idx, 0)
                 end = min(
@@ -177,7 +181,8 @@ class ASRModel:
 
                 hyp = self.model.encoder.ctc_forward(encoder_outs).squeeze(0)
                 hyps.append(hyp)
-                if device.type == "cuda":
+                # Only clear cache if debug flag is set - normally let PyTorch manage memory
+                if DEBUG_EMPTY_CACHE and device.type == "cuda":
                     torch.cuda.empty_cache()
                 if (
                     self.config["chunk_size"] * multiply_n * subsampling_factor * idx + rel_right_context_size

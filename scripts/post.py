@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import gc
@@ -9,6 +10,9 @@ try:  # optional torch for CUDA cache clearing; not required in dry-run
     import torch  # type: ignore
 except Exception:  # pragma: no cover - keep runnable without torch
     torch = None  # type: ignore
+
+# Environment flag for debug GPU memory clearing
+DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() == "true"
 from difflib import SequenceMatcher
 
 from contextlib import suppress
@@ -1317,8 +1321,10 @@ def main() -> None:
         # Free punctuation engine VRAM before building a new model to avoid OOM
         with suppress(Exception):
             del llm_punc
-        with suppress(Exception):
-            torch.cuda.empty_cache()  # type: ignore[attr-defined]
+        # Only clear cache if debug flag is set or switching models (higher chance of OOM)
+        if DEBUG_EMPTY_CACHE or not reuse:
+            with suppress(Exception):
+                torch.cuda.empty_cache()  # type: ignore[attr-defined]
         gc.collect()
         llm_sum = build_llm(s_model_id, s_quant, s_mml, s_gmu, s_mns, s_mbt)
     try:
@@ -1356,8 +1362,10 @@ def main() -> None:
             del llm_sum
     with suppress(Exception):
         del llm_punc
-    with suppress(Exception):
-        torch.cuda.empty_cache()  # type: ignore[attr-defined]
+    # Only clear cache at end if debug flag is set
+    if DEBUG_EMPTY_CACHE:
+        with suppress(Exception):
+            torch.cuda.empty_cache()  # type: ignore[attr-defined]
     gc.collect()
 
     # Consistency check: validate all non-empty text_raw have non-empty text_punct

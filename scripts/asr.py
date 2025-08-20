@@ -7,6 +7,9 @@ from typing import Any, Dict, List, Optional
 
 import torch
 
+# Environment flag for debug GPU memory clearing
+DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() == "true"
+
 
 def ensure_chunkformer_on_path(chunkformer_dir: Path) -> None:
     if str(chunkformer_dir) not in sys.path:
@@ -100,8 +103,10 @@ def run_asr(
     ).to(device)
 
     hyps: List[torch.Tensor] = []
-    ctx = torch.autocast(device.type, amp_dtype) if amp_dtype is not None else nullcontext()
-    with torch.no_grad(), ctx:
+    # Use explicit autocast for better performance
+    ctx = torch.autocast(device.type, dtype=amp_dtype, enabled=(amp_dtype is not None))
+    # Use inference_mode for better performance over no_grad
+    with torch.inference_mode(), ctx:
         for idx, _ in enumerate(range(0, xs.shape[1], truncated_context_size * subsampling_factor)):
             start = max(truncated_context_size * subsampling_factor * idx, 0)
             end = min(
@@ -143,7 +148,8 @@ def run_asr(
 
             hyp = model.encoder.ctc_forward(encoder_outs).squeeze(0)
             hyps.append(hyp)
-            if device.type == "cuda":
+            # Only clear cache if debug flag is set - normally let PyTorch manage memory
+            if DEBUG_EMPTY_CACHE and device.type == "cuda":
                 torch.cuda.empty_cache()
             if (
                 chunk_size * multiply_n * subsampling_factor * idx + rel_right_context_size
