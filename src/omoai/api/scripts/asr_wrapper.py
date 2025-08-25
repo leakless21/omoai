@@ -71,8 +71,17 @@ def run_asr_script(
     
     try:
         # Allow stdout/stderr to be visible for progress monitoring
-        subprocess.run(cmd, check=True)
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        # Log stdout for debugging
+        if result.stdout:
+            print(f"ASR stdout: {result.stdout}")
     except subprocess.CalledProcessError as e:
-        raise AudioProcessingException(f"ASR processing failed with return code {e.returncode}")
+        # Capture both stderr and stdout for better error reporting
+        error_message = f"ASR processing failed with return code {e.returncode}"
+        if e.stderr:
+            error_message += f", stderr: {e.stderr}"
+        if e.stdout:
+            error_message += f", stdout: {e.stdout}"
+        raise AudioProcessingException(error_message)
     except Exception as e:
         raise AudioProcessingException(f"Unexpected error during ASR processing: {str(e)}")

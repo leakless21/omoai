@@ -202,46 +202,44 @@ def run_full_pipeline_memory(
         
         # Save final results if requested
         if save_intermediates and output_dir:
-            import json
-            final_path = output_dir / "final.json"
-            final_json = {
-                "segments": [
-                    {
-                        "start": seg.start,
-                        "end": seg.end,
-                        "text_raw": asr_result.segments[i].text if i < len(asr_result.segments) else "",
-                        "text_punct": seg.text,
-                        "confidence": seg.confidence,
-                    }
-                    for i, seg in enumerate(postprocess_result.segments)
-                ],
-                "transcript_raw": asr_result.transcript,
-                "transcript_punct": postprocess_result.transcript_punctuated,
-                "summary": {
-                    "bullets": postprocess_result.summary.bullets,
-                    "abstract": postprocess_result.summary.abstract,
-                },
-                "metadata": postprocess_result.metadata,
-            }
-            with open(final_path, "w", encoding="utf-8") as f:
-                json.dump(final_json, f, ensure_ascii=False, indent=2)
+            # Use the new output system
+            from ..output import write_outputs
             
-            # Save separate text files if configured
-            if config.output.write_separate_files:
-                # Transcript file
-                transcript_path = output_dir / config.output.transcript_file
-                with open(transcript_path, "w", encoding="utf-8") as f:
-                    f.write(postprocess_result.transcript_punctuated)
-                
-                # Summary file
-                summary_path = output_dir / config.output.summary_file
-                with open(summary_path, "w", encoding="utf-8") as f:
-                    for bullet in postprocess_result.summary.bullets:
-                        f.write(f"- {bullet}\n")
-                    if postprocess_result.summary.bullets and postprocess_result.summary.abstract:
-                        f.write("\n")
-                    if postprocess_result.summary.abstract:
-                        f.write(postprocess_result.summary.abstract + "\n")
+            # Prepare segments in the expected format
+            segments = [
+                {
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text_raw": asr_result.segments[i].text if i < len(asr_result.segments) else "",
+                    "text_punct": seg.text,
+                    "confidence": seg.confidence,
+                }
+                for i, seg in enumerate(postprocess_result.segments)
+            ]
+            
+            # Prepare summary
+            summary = {
+                "bullets": postprocess_result.summary.bullets,
+                "abstract": postprocess_result.summary.abstract,
+            }
+            
+            # Write all configured outputs
+            written_files = write_outputs(
+                output_dir=output_dir,
+                segments=segments,
+                transcript_raw=asr_result.transcript,
+                transcript_punct=postprocess_result.transcript_punctuated,
+                summary=summary,
+                metadata=postprocess_result.metadata,
+                config=config.output,
+            )
+            
+            # Log what was written
+            logger.info("Output files written", extra={
+                "pipeline_id": pipeline_id,
+                "files_written": list(written_files.keys()),
+                "output_dir": str(output_dir),
+            })
         
         # Calculate total timing
         timing["total"] = time.time() - start_time

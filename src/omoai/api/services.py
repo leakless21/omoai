@@ -4,7 +4,7 @@ import json
 import tempfile
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from src.omoai.api.config import get_config
 from src.omoai.api.exceptions import AudioProcessingException
@@ -16,7 +16,8 @@ from src.omoai.api.models import (
     ASRRequest,
     ASRResponse,
     PostprocessRequest,
-    PostprocessResponse
+    PostprocessResponse,
+    OutputFormatParams
 )
 from src.omoai.api.scripts.preprocess_wrapper import run_preprocess_script
 from src.omoai.api.scripts.asr_wrapper import run_asr_script
@@ -127,7 +128,7 @@ def postprocess_service(data: PostprocessRequest) -> PostprocessResponse:
         raise AudioProcessingException(f"Unexpected error during post-processing: {str(e)}")
 
 
-async def run_full_pipeline(data: PipelineRequest) -> PipelineResponse:
+async def run_full_pipeline(data: PipelineRequest, output_params: Optional[OutputFormatParams] = None) -> PipelineResponse:
     """
     Run the full pipeline: preprocess -> ASR -> post-process.
 
@@ -164,6 +165,37 @@ async def run_full_pipeline(data: PipelineRequest) -> PipelineResponse:
         with open(final_json_path, "r", encoding="utf-8") as f:
             final_obj: Dict[str, Any] = json.load(f)
 
+        # Apply output parameter filtering if provided
+        if output_params:
+            filtered_summary = final_obj.get("summary", {})
+            filtered_segments = final_obj.get("segments", [])
+
+            # Filter summary based on parameters
+            if output_params.summary:
+                if output_params.summary == "none":
+                    filtered_summary = {}
+                elif output_params.summary == "bullets":
+                    filtered_summary = {"bullets": filtered_summary.get("bullets", [])}
+                elif output_params.summary == "abstract":
+                    filtered_summary = {"abstract": filtered_summary.get("abstract", "")}
+                # "both" keeps everything as-is
+
+                # Apply bullet limit if specified
+                if output_params.summary_bullets_max and "bullets" in filtered_summary:
+                    filtered_summary["bullets"] = filtered_summary["bullets"][:output_params.summary_bullets_max]
+
+            # Filter segments based on include parameters
+            if output_params.include:
+                include_set = set(output_params.include)
+                if "segments" not in include_set:
+                    filtered_segments = []
+
+            return PipelineResponse(
+                summary=filtered_summary,
+                segments=filtered_segments,
+            )
+
+        # Default behavior (backward compatibility)
         return PipelineResponse(
             summary=dict(final_obj.get("summary", {}) or {}),
             segments=list(final_obj.get("segments", []) or []),

@@ -17,9 +17,11 @@ dependencies = [
     "pillow>=11.3.0",
     "pydub>=0.25.1",
     "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
     "pyyaml>=6.0.2",
     "questionary>=2.1.0",
     "sentencepiece>=0.2.0",
+    "speechbrain",
     "textgrid>=1.6.1",
     "tqdm>=4.67.1",
     "underthesea>=6.8.4",
@@ -30,5 +32,10 @@ dependencies = [
 [project.scripts]
 start = "omoai.main:main"
 interactive = "omoai.interactive_cli:run_interactive_cli"
+api = "uvicorn omoai.api.app:app --reload"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+speechbrain = { git = "https://github.com/speechbrain/speechbrain.git", rev = "develop" }

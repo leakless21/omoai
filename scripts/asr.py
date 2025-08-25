@@ -12,8 +12,14 @@ DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() =
 
 
 def ensure_chunkformer_on_path(chunkformer_dir: Path) -> None:
-    if str(chunkformer_dir) not in sys.path:
+    # Add the chunkformer directory to path if it exists
+    if chunkformer_dir.exists() and str(chunkformer_dir) not in sys.path:
         sys.path.insert(0, str(chunkformer_dir))
+    
+    # Add the src directory to path so we can import omoai package
+    src_dir = chunkformer_dir.parent / "src"
+    if src_dir.exists() and str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
 
 
 def run_asr(

@@ -232,20 +232,24 @@ class SummarizationConfig(BaseModel):
     )
 
 
-class OutputConfig(BaseModel):
-    """Configuration for output formatting."""
+class TranscriptOutputConfig(BaseModel):
+    """Configuration for transcript output options."""
     
-    write_separate_files: bool = Field(
+    include_raw: bool = Field(
         default=True,
-        description="Write separate transcript and summary files"
+        description="Include raw transcript in outputs"
     )
-    transcript_file: str = Field(
-        default="transcript.txt",
-        description="Transcript filename"
+    include_punct: bool = Field(
+        default=True,
+        description="Include punctuated transcript in outputs"
     )
-    summary_file: str = Field(
-        default="summary.txt",
-        description="Summary filename"
+    include_segments: bool = Field(
+        default=True,
+        description="Include timestamped segments in outputs"
+    )
+    timestamps: Literal["none", "s", "ms", "clock"] = Field(
+        default="clock",
+        description="Timestamp format (none, s=seconds, ms=milliseconds, clock=HH:MM:SS)"
     )
     wrap_width: int = Field(
         default=0,
@@ -253,6 +257,113 @@ class OutputConfig(BaseModel):
         le=200,
         description="Text wrapping width (0=no wrapping)"
     )
+    file_raw: str = Field(
+        default="transcript.raw.txt",
+        description="Raw transcript filename"
+    )
+    file_punct: str = Field(
+        default="transcript.punct.txt", 
+        description="Punctuated transcript filename"
+    )
+    file_srt: str = Field(
+        default="transcript.srt",
+        description="SRT subtitle filename"
+    )
+    file_vtt: str = Field(
+        default="transcript.vtt",
+        description="WebVTT subtitle filename"
+    )
+    file_segments: str = Field(
+        default="segments.json",
+        description="Segments JSON filename"
+    )
+
+
+class SummaryOutputConfig(BaseModel):
+    """Configuration for summary output options."""
+    
+    mode: Literal["bullets", "abstract", "both", "none"] = Field(
+        default="both",
+        description="Summary generation mode"
+    )
+    bullets_max: int = Field(
+        default=7,
+        ge=1,
+        le=20,
+        description="Maximum number of bullet points"
+    )
+    abstract_max_chars: int = Field(
+        default=1000,
+        ge=100,
+        le=5000,
+        description="Maximum abstract length in characters"
+    )
+    language: str = Field(
+        default="vi",
+        description="Summary language (vi, en, etc.)"
+    )
+    file: str = Field(
+        default="summary.md",
+        description="Summary output filename"
+    )
+
+
+class OutputConfig(BaseModel):
+    """Configuration for output formatting."""
+    
+    # Legacy fields (maintained for backward compatibility)
+    write_separate_files: bool = Field(
+        default=True,
+        description="Write separate transcript and summary files"
+    )
+    transcript_file: str = Field(
+        default="transcript.txt",
+        description="Legacy transcript filename (use transcript.file_punct instead)"
+    )
+    summary_file: str = Field(
+        default="summary.txt", 
+        description="Legacy summary filename (use summary.file instead)"
+    )
+    wrap_width: int = Field(
+        default=0,
+        ge=0,
+        le=200,
+        description="Legacy text wrapping width (use transcript.wrap_width instead)"
+    )
+    
+    # New structured configuration
+    formats: List[Literal["json", "text", "srt", "vtt", "md"]] = Field(
+        default=["json", "text"],
+        description="Output formats to generate"
+    )
+    transcript: TranscriptOutputConfig = Field(
+        default_factory=TranscriptOutputConfig,
+        description="Transcript output configuration"
+    )
+    summary: SummaryOutputConfig = Field(
+        default_factory=SummaryOutputConfig,
+        description="Summary output configuration"
+    )
+    final_json: str = Field(
+        default="final.json",
+        description="Final JSON output filename"
+    )
+    
+    @model_validator(mode="after")
+    def migrate_legacy_fields(self) -> "OutputConfig":
+        """Migrate legacy fields to new structure for backward compatibility."""
+        # Migrate wrap_width if it's non-default
+        if self.wrap_width != 0 and self.transcript.wrap_width == 0:
+            self.transcript.wrap_width = self.wrap_width
+        
+        # Migrate legacy filenames if they're non-default
+        if self.transcript_file != "transcript.txt":
+            self.transcript.file_punct = self.transcript_file
+        
+        if self.summary_file != "summary.txt":
+            self.summary.file = self.summary_file
+        
+        return self
 
 
 class APIConfig(BaseModel):

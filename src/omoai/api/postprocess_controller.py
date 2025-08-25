@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from litestar import Controller, post
 from litestar.datastructures import State
 
-from src.omoai.api.models import PostprocessRequest, PostprocessResponse
+from src.omoai.api.models import PostprocessRequest, PostprocessResponse, OutputFormatParams
 
 
 class PostprocessModel:
@@ -187,6 +187,20 @@ class PostprocessController(Controller):
     path = "/postprocess"
 
     @post()
-    async def postprocess(self, data: PostprocessRequest, state: State) -> PostprocessResponse:
-        """Process post-processing request using the refactored service function."""
+    async def postprocess(
+        self,
+        data: PostprocessRequest,
+        state: State,
+        output_params: Optional[OutputFormatParams] = None
+    ) -> PostprocessResponse:
+        """Process post-processing request with optional output formatting.
+
+        Query Parameters (optional):
+        - include: What to include (transcript_raw, transcript_punct, segments)
+        - ts: Timestamp format (none, s, ms, clock)
+        - summary: Summary type (bullets, abstract, both, none)
+        - summary_bullets_max: Maximum number of bullet points
+        - summary_lang: Summary language
+        """
+        # For now, just pass through - can be enhanced later to support output formatting
         return postprocess_service(data)

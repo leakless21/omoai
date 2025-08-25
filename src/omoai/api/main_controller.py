@@ -1,9 +1,13 @@
-from typing import Annotated
+from typing import Annotated, Optional, List, Literal
 from litestar import Controller, post
 from litestar.params import Body
 from litestar.enums import RequestEncodingType
-from src.omoai.api.models import PipelineRequest, PipelineResponse
+import logging
+from src.omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
 from src.omoai.api.services import run_full_pipeline
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 
 class MainController(Controller):
@@ -13,7 +17,15 @@ class MainController(Controller):
 
     @post("/pipeline")
     async def pipeline(
-        self, data: Annotated[PipelineRequest, Body(media_type=RequestEncodingType.MULTI_PART)]
+        self,
+        data: Annotated[PipelineRequest, Body(media_type=RequestEncodingType.MULTI_PART)],
+        # Query parameters for output formatting
+        formats: Optional[List[Literal["json", "text", "srt", "vtt", "md"]]] = None,
+        include: Optional[List[Literal["transcript_raw", "transcript_punct", "segments"]]] = None,
+        ts: Optional[Literal["none", "s", "ms", "clock"]] = None,
+        summary: Optional[Literal["bullets", "abstract", "both", "none"]] = None,
+        summary_bullets_max: Optional[int] = None,
+        summary_lang: Optional[str] = None,
     ) -> PipelineResponse:
         """
         Endpoint to run the entire audio processing pipeline.
@@ -22,5 +34,33 @@ class MainController(Controller):
         1. Preprocess: Take the uploaded audio file and preprocess it.
         2. ASR: Pass the preprocessed file path to the ASR logic to get the raw transcript and segments.
         3. Post-process: Pass the ASR output to the post-processing logic to get the final punctuated transcript and summary.
+
+        Query Parameters (optional):
+        - formats: List of output formats (json, text, srt, vtt, md)
+        - include: What to include (transcript_raw, transcript_punct, segments)
+        - ts: Timestamp format (none, s, ms, clock)
+        - summary: Summary type (bullets, abstract, both, none)
+        - summary_bullets_max: Maximum number of bullet points
+        - summary_lang: Summary language
+
+        Example: GET /pipeline?include=segments&ts=clock&summary=bullets
         """
-        return await run_full_pipeline(data)
+        # Create OutputFormatParams object from query parameters
+        output_params = OutputFormatParams(
+            formats=formats,
+            include=include,
+            ts=ts,
+            summary=summary,
+            summary_bullets_max=summary_bullets_max,
+            summary_lang=summary_lang
+        )
+        
+        # Debug logging to validate query parameter parsing
+        logger.info(f"Received query parameters - summary: {summary}, summary_bullets_max: {summary_bullets_max}, include: {include}")
+        logger.info(f"Created output_params: {output_params}")
+        if output_params:
+            logger.info(f"output_params.summary: {output_params.summary}")
+            logger.info(f"output_params.summary_bullets_max: {output_params.summary_bullets_max}")
+            logger.info(f"output_params.include: {output_params.include}")
+        
+        return await run_full_pipeline(data, output_params)

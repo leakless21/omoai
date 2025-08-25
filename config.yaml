@@ -1,30 +1,27 @@
+# Enhanced OMOAI Configuration with New Output Options
+# This configuration demonstrates the new plugin-based output system
+
 paths:
-  # Local path to the cloned ChunkFormer source
-  chunkformer_dir: /home/cetech/omoai/chunkformer
-  # Local path to Hugging Face checkpoint repo (downloaded/rsynced locally)
-  chunkformer_checkpoint: /home/cetech/omoai/models/chunkformer/chunkformer-large-vie
-  # Output directory for intermediate and final artifacts
-  out_dir: /home/cetech/omoai/data/output
+  chunkformer_dir: ./src/omoai/chunkformer
+  chunkformer_checkpoint: ./chunkformer-large-vie
+  out_dir: data/output
 
 asr:
-  # Max total duration (seconds) per batch that your GPU can handle
   total_batch_duration_s: 1800
-  # ChunkFormer decoding parameters (match decode.py semantics)
   chunk_size: 64
   left_context_size: 128
   right_context_size: 128
-  # Runtime
-  device: cuda
-  autocast_dtype: fp16 # one of: fp32 | bf16 | fp16
+  device: auto
+  autocast_dtype: fp16
 
 llm:
   model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
-  quantization: auto # let vLLM infer if model specifies compressed-tensors
+  quantization: auto
   max_model_len: 50000
   gpu_memory_utilization: 0.90
   max_num_seqs: 2
   max_num_batched_tokens: 512
-  trust_remote_code: true # WARNING: enables arbitrary code execution from model repo
+  trust_remote_code: true
 
 punctuation:
   llm:
@@ -35,36 +32,26 @@ punctuation:
     max_num_seqs: 2
     max_num_batched_tokens: 512
     trust_remote_code: true
-  preserve_original_words: false
-  # Segmented batching configuration
-  auto_switch_ratio: 0.98 # ratio of model context used for token budget
-  auto_margin_tokens: 128 # safety margin tokens reserved for output
-  # Output quality controls
-  adopt_case: true # adopt LLM capitalization when words match
-  enable_paragraphs: true # enable paragraph breaks based on timing gaps
-  # Legacy paragraph formatting (used when enable_paragraphs=true)
+  preserve_original_words: true
+  auto_switch_ratio: 0.98
+  auto_margin_tokens: 128
+  adopt_case: true
+  enable_paragraphs: true
   join_separator: " "
   paragraph_gap_seconds: 3.0
   system_prompt: |
-    <task>
-    Bạn là trình biên tập tiếng Việt chuyên sửa dấu câu và viết hoa.
-    Mục tiêu: nhận chuỗi tiếng Việt mộc (không/ít dấu câu), trả về CHÍNH XÁC cùng nội dung nhưng:
-    - Thêm đúng dấu câu: . , ? ! …
-    - Viết hoa chữ cái đầu câu và tên riêng (nếu rõ ràng).
-    - Chuẩn hoá khoảng trắng; không chèn khoảng trắng trước dấu câu.
-    - Không thay đổi thứ tự từ; không thêm/bớt thông tin.
-    - Được phép chuẩn hoá chính tả tiếng Anh phiên âm (ví dụ: "phây-búc" → "Facebook"), viết tắt ("ai" → "AI") khi hiển nhiên.
-    - KHÔNG thêm bất kỳ lời giải thích, nhãn, markdown, trích dẫn, hoặc lặp lại input.
-    - Nếu không chắc, giữ nguyên từ gốc và CHỈ thêm dấu câu/viết hoa.
-    Đầu ra: CHỈ văn bản thuần (plain text) một đoạn; không có dòng/trailing spaces thừa.
-
-    Ví dụ:
-    <input>xin chao moi nguoi hom nay troi dep</input>
-    <output>Xin chào mọi người, hôm nay trời đẹp.</output>
-
+    <instruction>
+    You are a Vietnamese text punctuation engine. Your task is to add proper punctuation and capitalization to the input text.
+    - Preserve the original word order and meaning
+    - Add appropriate punctuation marks (., !, ?, :, ;, etc.)
+    - Capitalize the first letter of sentences and proper nouns
+    - Use paragraph breaks for natural speech pauses
+    - Maintain the original language style and tone
+    </instruction>
+    <example>
     <input>toi dang xem mot buoi lai trim tren phay buc ve tri tue nhan tao ai</input>
     <output>Tôi đang xem một buổi livestream trên Facebook về trí tuệ nhân tạo AI.</output>
-    </task>
+    </example>
   sampling:
     temperature: 0.0
 
@@ -77,9 +64,9 @@ summarization:
     max_num_seqs: 2
     max_num_batched_tokens: 512
     trust_remote_code: true
-  map_reduce: false # set true for very long transcripts
-  auto_switch_ratio: 0.98 # switch to map-reduce if total_tokens > ratio * max_model_len - auto_margin_tokens
-  auto_margin_tokens: 256 # safety margin (tokens) subtracted from the threshold
+  map_reduce: false
+  auto_switch_ratio: 0.98
+  auto_margin_tokens: 256
   system_prompt: |
     <instruction>
     You are a Vietnamese text analysis engine. Your task is to generate a summary of the input text and format it as a single, valid JSON object.
@@ -105,25 +92,50 @@ summarization:
   sampling:
     temperature: 0.7
 
-output:
-  write_separate_files: true
-  transcript_file: transcript.txt
-  summary_file: summary.txt
-  wrap_width: 0
+# NEW: Enhanced Output Configuration
+# Legacy fields (maintained for backward compatibility)
+write_separate_files: true
+transcript_file: "transcript.txt" # Legacy - maps to transcript.file_punct
+summary_file: "summary.txt" # Legacy - maps to summary.file
+wrap_width: 0 # Legacy - maps to transcript.wrap_width
+
+# New structured configuration
+formats: ["json", "text", "srt", "vtt", "md"] # All available formats
+
+# Transcript output configuration
+transcript:
+  include_raw: true # Include raw transcript in outputs
+  include_punct: true # Include punctuated transcript in outputs
+  include_segments: true # Include timestamped segments in outputs
+  timestamps: "clock" # Format: "none", "s", "ms", "clock"
+  wrap_width: 100 # Text wrapping width (0 = no wrapping)
+
+  # Filename configuration
+  file_raw: "transcript.raw.txt"
+  file_punct: "transcript.punct.txt"
+  file_srt: "transcript.srt"
+  file_vtt: "transcript.vtt"
+  file_segments: "segments.json"
+
+# Summary output configuration
+summary:
+  mode: "both" # "bullets", "abstract", "both", "none"
+  bullets_max: 7 # Maximum number of bullet points
+  abstract_max_chars: 1000 # Maximum abstract length
+  language: "vi" # Summary language
+  file: "summary.md" # Summary output filename
+
+# Final output filename
+final_json: "final.json"
 
 api:
-  # Server configuration
   host: "0.0.0.0"
   port: 8000
-  # Request limits
   max_body_size_mb: 100
   request_timeout_seconds: 300
-  # File handling
   temp_dir: "/tmp"
   cleanup_temp_files: true
-  # Progress output
   enable_progress_output: true
-  # Health check configuration
   health_check_dependencies:
     - ffmpeg
     - config_file
