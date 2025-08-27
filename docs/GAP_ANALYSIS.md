@@ -8,6 +8,25 @@ _No active issues at this time._
 
 ## Resolved Issues
 
+### Pipeline 500 Internal Server Error - Module Import Path Issue (RESOLVED)
+
+- **Issue**: API endpoint `/pipeline` returning 500 Internal Server Error with `ModuleNotFoundError: No module named 'scripts'`
+- **Root Cause**: The ASR and postprocess wrapper scripts were executing subprocess commands with `python -m scripts.asr` and `python -m scripts.post` from the current working directory, but the `scripts` directory was not accessible from the Python module path. The subprocess couldn't find the `scripts` module because it was being executed from a directory where `scripts` wasn't visible as a Python module.
+- **Symptoms**:
+  - API returning 500 Internal Server Error on POST requests to `/pipeline`
+  - Enhanced logging showing: `ASR stderr: /home/cetech/omoai/.venv/bin/python3: Error while finding module specification for 'scripts.asr' (ModuleNotFoundError: No module named 'scripts')`
+  - FFmpeg preprocessing completing successfully, but pipeline failing at ASR stage
+  - No ASR-specific logging appearing before the error
+- **Resolution**: Modified both ASR and postprocess wrapper scripts to change the working directory to the project root before executing the subprocess commands. This ensures the `scripts` directory is accessible as a Python module. Added `cwd=project_root` parameter to `subprocess.run()` calls and enhanced logging for better debugging.
+- **Files Modified**:
+  - `src/omoai/api/scripts/asr_wrapper.py`
+  - `src/omoai/api/scripts/postprocess_wrapper.py`
+- **Test Coverage**: `tests/test_module_import_fix.py`
+- **Verification**: All unit tests pass, confirming the fix resolves the 500 Terminal Output error. The pipeline can now successfully execute ASR and postprocess scripts without module import errors.
+- **Date Resolved**: 2025-08-27
+
+## Resolved Issues
+
 ### Query Parameter Parsing Bug in Pipeline Endpoint (RESOLVED)
 
 - **Issue**: Query parameters like `summary=bullets&summary_bullets_max=3&include=segments` were not being parsed correctly in the `/pipeline` endpoint

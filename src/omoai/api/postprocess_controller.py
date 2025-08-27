@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from litestar import Controller, post
 from litestar.datastructures import State
 
-from src.omoai.api.models import PostprocessRequest, PostprocessResponse, OutputFormatParams
+from omoai.api.models import PostprocessRequest, PostprocessResponse, OutputFormatParams
 
 
 class PostprocessModel:
@@ -180,7 +180,7 @@ class PostprocessModel:
         }
 
 
-from src.omoai.api.services import postprocess_service
+from omoai.api.services import postprocess_service
 
 
 class PostprocessController(Controller):

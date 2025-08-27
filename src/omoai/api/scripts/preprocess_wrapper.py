@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 from typing import Union
 
-from src.omoai.api.exceptions import AudioProcessingException
+from omoai.api.exceptions import AudioProcessingException
 
 
 def run_preprocess_script(input_path: Union[str, Path], output_path: Union[str, Path]) -> None:

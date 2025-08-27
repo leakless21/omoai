@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import Union, Optional
 
-from src.omoai.api.exceptions import AudioProcessingException
+from omoai.api.exceptions import AudioProcessingException
 
 
 def run_asr_script(
@@ -70,18 +70,43 @@ def run_asr_script(
         cmd.extend(["--autocast-dtype", autocast_dtype])
     
     try:
+        # Enhanced logging for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"ASR command: {' '.join(cmd)}")
+        
+        # Change to project root directory to ensure scripts module is accessible
+        project_root = Path(__file__).resolve().parents[4]  # Go up 5 levels from src/omoai/api/scripts/asr_wrapper.py to project root
+        logger.info(f"Changing working directory to: {project_root}")
+        
         # Allow stdout/stderr to be visible for progress monitoring
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        # Log stdout for debugging
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=project_root)
+        
+        # Enhanced logging for debugging
+        logger.info(f"ASR process completed with return code: {result.returncode}")
         if result.stdout:
+            logger.info(f"ASR stdout: {result.stdout}")
             print(f"ASR stdout: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"ASR stderr: {result.stderr}")
+            print(f"ASR stderr: {result.stderr}")
+            
     except subprocess.CalledProcessError as e:
         # Capture both stderr and stdout for better error reporting
+        import logging
+        logger = logging.getLogger(__name__)
         error_message = f"ASR processing failed with return code {e.returncode}"
         if e.stderr:
             error_message += f", stderr: {e.stderr}"
+            logger.error(f"ASR stderr: {e.stderr}")
         if e.stdout:
             error_message += f", stdout: {e.stdout}"
+            logger.error(f"ASR stdout: {e.stdout}")
+        logger.error(f"ASR command that failed: {' '.join(cmd)}")
         raise AudioProcessingException(error_message)
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error during ASR processing: {str(e)}")
+        logger.error(f"ASR command: {' '.join(cmd)}")
         raise AudioProcessingException(f"Unexpected error during ASR processing: {str(e)}")

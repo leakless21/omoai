@@ -9,7 +9,7 @@ from litestar import Controller, post
 from litestar.datastructures import State
 from pydub import AudioSegment  # type: ignore
 
-from src.omoai.api.models import ASRRequest, ASRResponse
+from omoai.api.models import ASRRequest, ASRResponse
 
 # Environment flag for debug GPU memory clearing
 DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() == "true"
@@ -212,7 +212,7 @@ class ASRModel:
         }
 
 
-from src.omoai.api.services import asr_service
+from omoai.api.services import asr_service
 
 
 class ASRController(Controller):

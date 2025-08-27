@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import Union, Optional
 
-from src.omoai.api.exceptions import AudioProcessingException
+from omoai.api.exceptions import AudioProcessingException
 
 
 def run_postprocess_script(
@@ -35,9 +35,27 @@ def run_postprocess_script(
         cmd.extend(["--config", str(config_path)])
     
     try:
+        # Enhanced logging for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Postprocess command: {' '.join(cmd)}")
+        
+        # Change to project root directory to ensure scripts module is accessible
+        project_root = Path(__file__).resolve().parents[4]  # Go up 5 levels from src/omoai/api/scripts/postprocess_wrapper.py to project root
+        logger.info(f"Changing working directory to: {project_root}")
+        
         # Allow stdout/stderr to be visible for progress monitoring
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, cwd=project_root)
     except subprocess.CalledProcessError as e:
+        # Enhanced logging for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Postprocessing failed with return code {e.returncode}")
+        logger.error(f"Postprocess command that failed: {' '.join(cmd)}")
         raise AudioProcessingException(f"Postprocessing failed with return code {e.returncode}")
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Unexpected error during postprocessing: {str(e)}")
+        logger.error(f"Postprocess command: {' '.join(cmd)}")
         raise AudioProcessingException(f"Unexpected error during postprocessing: {str(e)}")

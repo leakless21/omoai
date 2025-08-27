@@ -2,8 +2,8 @@
 # This configuration demonstrates the new plugin-based output system
 
 paths:
-  chunkformer_dir: ./src/omoai/chunkformer
-  chunkformer_checkpoint: ./chunkformer-large-vie
+  chunkformer_dir: ./src/chunkformer
+  chunkformer_checkpoint: ./models/chunkformer/chunkformer-large-vie
   out_dir: data/output
 
 asr:

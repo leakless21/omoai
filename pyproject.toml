@@ -32,7 +32,7 @@ dependencies = [
 [project.scripts]
 start = "omoai.main:main"
 interactive = "omoai.interactive_cli:run_interactive_cli"
-api = "uvicorn omoai.api.app:app --reload"
+api = "omoai.api.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

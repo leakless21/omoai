@@ -5,7 +5,7 @@ from pathlib import Path
 from litestar import get
 from litestar.response import Response
 
-from src.omoai.api.config import get_config
+from omoai.api.config import get_config
 
 
 @get("/health")

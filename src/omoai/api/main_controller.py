@@ -1,10 +1,11 @@
 from typing import Annotated, Optional, List, Literal
-from litestar import Controller, post
+from litestar import Controller, post, get
 from litestar.params import Body
 from litestar.enums import RequestEncodingType
+from litestar.response import Redirect
 import logging
-from src.omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
-from src.omoai.api.services import run_full_pipeline
+from omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
+from omoai.api.services import run_full_pipeline
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -14,6 +15,16 @@ class MainController(Controller):
     """
     MainController handles the main API endpoint for running the entire audio processing pipeline.
     """
+
+    @get("/")
+    async def root(self) -> Redirect:
+        """
+        Root endpoint that redirects to the OpenAPI schema documentation.
+        
+        This provides a convenient way for users to access the API documentation
+        when they visit the root URL of the application.
+        """
+        return Redirect(path="/schema")
 
     @post("/pipeline")
     async def pipeline(

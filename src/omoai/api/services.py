@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.omoai.api.config import get_config
-from src.omoai.api.exceptions import AudioProcessingException
-from src.omoai.api.models import (
+from omoai.api.config import get_config
+from omoai.api.exceptions import AudioProcessingException
+from omoai.api.models import (
     PipelineRequest,
     PipelineResponse,
     PreprocessRequest,
@@ -19,9 +19,9 @@ from src.omoai.api.models import (
     PostprocessResponse,
     OutputFormatParams
 )
-from src.omoai.api.scripts.preprocess_wrapper import run_preprocess_script
-from src.omoai.api.scripts.asr_wrapper import run_asr_script
-from src.omoai.api.scripts.postprocess_wrapper import run_postprocess_script
+from omoai.api.scripts.preprocess_wrapper import run_preprocess_script
+from omoai.api.scripts.asr_wrapper import run_asr_script
+from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
 
 
 async def preprocess_audio_service(data: PreprocessRequest) -> PreprocessResponse:
@@ -139,6 +139,11 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Outpu
     Returns:
         PipelineResponse with final transcript, summary, and segments
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("Starting full pipeline execution")
+    
     # 1) Save upload to a temporary file
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
@@ -146,24 +151,52 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Outpu
         content = await data.audio_file.read()
         with open(upload_path, "wb") as f:
             f.write(content)
+        
+        logger.info(f"Saved uploaded audio to temporary file: {upload_path}")
+        logger.info(f"Audio file size: {len(content)} bytes")
 
         # 2) Preprocess via script
         config = get_config()
         preprocessed_path = Path(config.api.temp_dir) / f"preprocessed_{os.urandom(8).hex()}.wav"
-        run_preprocess_script(input_path=upload_path, output_path=preprocessed_path)
+        logger.info(f"Starting audio preprocessing to: {preprocessed_path}")
+        try:
+            run_preprocess_script(input_path=upload_path, output_path=preprocessed_path)
+            logger.info("Audio preprocessing completed successfully")
+        except Exception as e:
+            logger.error(f"Audio preprocessing failed: {str(e)}")
+            raise
 
         # 3) ASR via script
         asr_json_path = Path(config.api.temp_dir) / f"asr_{os.urandom(8).hex()}.json"
         config_path = config.config_path
-        run_asr_script(audio_path=preprocessed_path, output_path=asr_json_path, config_path=config_path)
+        logger.info(f"Starting ASR processing, output will be saved to: {asr_json_path}")
+        logger.info(f"Using config path: {config_path}")
+        try:
+            run_asr_script(audio_path=preprocessed_path, output_path=asr_json_path, config_path=config_path)
+            logger.info("ASR processing completed successfully")
+        except Exception as e:
+            logger.error(f"ASR processing failed: {str(e)}")
+            raise
 
         # 4) Post-process via script
         final_json_path = Path(config.api.temp_dir) / f"final_{os.urandom(8).hex()}.json"
-        run_postprocess_script(asr_json_path=asr_json_path, output_path=final_json_path, config_path=config_path)
+        logger.info(f"Starting post-processing, output will be saved to: {final_json_path}")
+        try:
+            run_postprocess_script(asr_json_path=asr_json_path, output_path=final_json_path, config_path=config_path)
+            logger.info("Post-processing completed successfully")
+        except Exception as e:
+            logger.error(f"Post-processing failed: {str(e)}")
+            raise
 
         # 5) Load final output
-        with open(final_json_path, "r", encoding="utf-8") as f:
-            final_obj: Dict[str, Any] = json.load(f)
+        logger.info(f"Loading final output from: {final_json_path}")
+        try:
+            with open(final_json_path, "r", encoding="utf-8") as f:
+                final_obj: Dict[str, Any] = json.load(f)
+            logger.info("Final output loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load final output: {str(e)}")
+            raise
 
         # Apply output parameter filtering if provided
         if output_params:

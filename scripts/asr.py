@@ -12,14 +12,29 @@ DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() =
 
 
 def ensure_chunkformer_on_path(chunkformer_dir: Path) -> None:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"chunkformer_dir: {chunkformer_dir}")
+    logger.info(f"chunkformer_dir.exists(): {chunkformer_dir.exists()}")
+    
     # Add the chunkformer directory to path if it exists
     if chunkformer_dir.exists() and str(chunkformer_dir) not in sys.path:
         sys.path.insert(0, str(chunkformer_dir))
+        logger.info(f"Added chunkformer_dir to sys.path: {chunkformer_dir}")
     
     # Add the src directory to path so we can import omoai package
-    src_dir = chunkformer_dir.parent / "src"
+    # The src directory is at the project root, not relative to chunkformer_dir
+    src_dir = chunkformer_dir.parent.parent / "src"
+    logger.info(f"src_dir: {src_dir}")
+    logger.info(f"src_dir.exists(): {src_dir.exists()}")
+    
     if src_dir.exists() and str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
+        logger.info(f"Added src_dir to sys.path: {src_dir}")
+    
+    logger.info(f"sys.path: {sys.path}")
 
 
 def run_asr(
@@ -34,18 +49,67 @@ def run_asr(
     autocast_dtype: str | None,
     chunkformer_dir: Path,
 ) -> None:
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"Starting ASR processing for audio: {audio_path}")
+    logger.info(f"Model checkpoint path: {model_checkpoint}")
+    logger.info(f"Output path: {out_path}")
+    logger.info(f"Device: {device_str}")
+    logger.info(f"Chunkformer directory: {chunkformer_dir}")
+    
+    # Check if model checkpoint exists
+    if not model_checkpoint.exists():
+        logger.error(f"Model checkpoint does not exist: {model_checkpoint}")
+        raise FileNotFoundError(f"Model checkpoint not found: {model_checkpoint}")
+    
+    logger.info(f"Model checkpoint exists, size: {model_checkpoint.stat().st_size} bytes")
+    
     ensure_chunkformer_on_path(chunkformer_dir)
 
     # Local imports after sys.path adjustment
-    from omoai.chunkformer import decode as cfdecode  # type: ignore
-    import torchaudio.compliance.kaldi as kaldi  # type: ignore
-    from omoai.chunkformer.model.utils.ctc_utils import (
-        get_output_with_timestamps,
-    )  # type: ignore
-    from contextlib import nullcontext
-    from pydub import AudioSegment  # type: ignore
+    try:
+        from chunkformer.omoai import decode as cfdecode  # type: ignore
+        logger.info("Successfully imported chunkformer decode module")
+    except ImportError as e:
+        logger.error(f"Failed to import chunkformer decode module: {e}")
+        raise
+    
+    try:
+        import torchaudio.compliance.kaldi as kaldi  # type: ignore
+        logger.info("Successfully imported torchaudio kaldi")
+    except ImportError as e:
+        logger.error(f"Failed to import torchaudio kaldi: {e}")
+        raise
+    
+    try:
+        from chunkformer.omoai.model.utils.ctc_utils import (
+            get_output_with_timestamps,
+        )  # type: ignore
+        logger.info("Successfully imported ctc_utils")
+    except ImportError as e:
+        logger.error(f"Failed to import ctc_utils: {e}")
+        raise
+    
+    try:
+        from contextlib import nullcontext
+        from pydub import AudioSegment  # type: ignore
+        logger.info("Successfully imported pydub AudioSegment")
+    except ImportError as e:
+        logger.error(f"Failed to import pydub: {e}")
+        raise
 
+    # Check CUDA availability
+    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        logger.info(f"CUDA device count: {torch.cuda.device_count()}")
+        logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
+        logger.info(f"CUDA device name: {torch.cuda.get_device_name()}")
+    
     device = torch.device(device_str)
+    logger.info(f"Using device: {device}")
+    
     dtype_map = {
         None: None,
         "fp32": torch.float32,
@@ -53,9 +117,16 @@ def run_asr(
         "fp16": torch.float16,
     }
     amp_dtype = dtype_map.get(autocast_dtype, None)
+    logger.info(f"AMP dtype: {amp_dtype}")
 
     # Initialize model and char dict
-    model, char_dict = cfdecode.init(str(model_checkpoint), device)
+    logger.info("Initializing model and character dictionary...")
+    try:
+        model, char_dict = cfdecode.init(str(model_checkpoint), device)
+        logger.info("Model initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize model: {e}")
+        raise
 
     # Compute internal parameters in the same way as decode.py
     subsampling_factor = model.encoder.embed.subsampling_factor
@@ -238,21 +309,31 @@ def main() -> None:
     parser.add_argument(
         "--chunkformer-dir",
         type=str,
-        default=str(Path(__file__).resolve().parents[1] / "chunkformer"),
+        default=str(Path(__file__).resolve().parents[1] / "src" / "chunkformer"),
         help="Path to chunkformer source directory",
     )
 
     args = parser.parse_args()
+    
+    # Initialize logger for main function
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
     # Load config yaml if available
     cfg: Dict[str, Any] = {}
     try:
         import yaml  # type: ignore
 
         cfg_path = Path(args.config)
+        logger.info(f"Loading config from: {cfg_path}")
+        logger.info(f"Config file exists: {cfg_path.exists()}")
         if cfg_path.exists():
             with open(cfg_path, "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f) or {}
-    except Exception:
+            logger.info(f"Config loaded: {cfg}")
+    except Exception as e:
+        logger.info(f"Error loading config: {e}")
         cfg = cfg or {}
 
     def cfg_get(path: List[str], default: Optional[Any] = None) -> Any:
@@ -299,7 +380,7 @@ def main() -> None:
         right_context_size=int(args.right_context_size or cfg_get(["asr", "right_context_size"], 128)),
         device_str=str(args.device or cfg_get(["asr", "device"], "cuda")),
         autocast_dtype=(args.autocast_dtype or cfg_get(["asr", "autocast_dtype"], None)),
-        chunkformer_dir=Path(args.chunkformer_dir or cfg_get(["paths", "chunkformer_dir"], str(Path(__file__).resolve().parents[1] / "chunkformer"))),
+        chunkformer_dir=Path(args.chunkformer_dir or cfg_get(["paths", "chunkformer_dir"], str(Path(__file__).resolve().parents[1] / "src" / "chunkformer")))
     )
 
 

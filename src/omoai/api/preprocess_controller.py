@@ -2,8 +2,8 @@ from typing import Annotated
 from litestar import Controller, post
 from litestar.params import Body
 from litestar.enums import RequestEncodingType
-from src.omoai.api.models import PreprocessRequest, PreprocessResponse
-from src.omoai.api.services import preprocess_audio_service
+from omoai.api.models import PreprocessRequest, PreprocessResponse
+from omoai.api.services import preprocess_audio_service
 
 
 class PreprocessController(Controller):
