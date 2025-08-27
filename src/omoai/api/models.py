@@ -43,6 +43,8 @@ class OutputFormatParams(BaseModel):
 class PipelineResponse(BaseModel):
     summary: dict
     segments: list
+    # Punctuated transcript text for convenience (used for default text/plain responses)
+    transcript_punct: str | None = None
 
 
 class PreprocessResponse(BaseModel):

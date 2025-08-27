@@ -202,6 +202,7 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Outpu
         if output_params:
             filtered_summary = final_obj.get("summary", {})
             filtered_segments = final_obj.get("segments", [])
+            filtered_transcript_punct = final_obj.get("transcript_punct", "")
 
             # Filter summary based on parameters
             if output_params.summary:
@@ -222,14 +223,18 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Outpu
                 include_set = set(output_params.include)
                 if "segments" not in include_set:
                     filtered_segments = []
+                if "transcript_punct" not in include_set:
+                    filtered_transcript_punct = ""
 
             return PipelineResponse(
                 summary=filtered_summary,
                 segments=filtered_segments,
+                transcript_punct=filtered_transcript_punct,
             )
 
         # Default behavior (backward compatibility)
         return PipelineResponse(
             summary=dict(final_obj.get("summary", {}) or {}),
             segments=list(final_obj.get("segments", []) or []),
+            transcript_punct=str(final_obj.get("transcript_punct", "")) or None,
         )

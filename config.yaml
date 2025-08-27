@@ -4,7 +4,7 @@
 paths:
   chunkformer_dir: ./src/chunkformer
   chunkformer_checkpoint: ./models/chunkformer/chunkformer-large-vie
-  out_dir: data/output
+  out_dir: ./data/output
 
 asr:
   total_batch_duration_s: 1800

@@ -2,7 +2,7 @@ from typing import Annotated, Optional, List, Literal
 from litestar import Controller, post, get
 from litestar.params import Body
 from litestar.enums import RequestEncodingType
-from litestar.response import Redirect
+from litestar.response import Redirect, Response
 import logging
 from omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
 from omoai.api.services import run_full_pipeline
@@ -37,7 +37,7 @@ class MainController(Controller):
         summary: Optional[Literal["bullets", "abstract", "both", "none"]] = None,
         summary_bullets_max: Optional[int] = None,
         summary_lang: Optional[str] = None,
-    ) -> PipelineResponse:
+    ) -> PipelineResponse | Response[str]:
         """
         Endpoint to run the entire audio processing pipeline.
 
@@ -74,4 +74,43 @@ class MainController(Controller):
             logger.info(f"output_params.summary_bullets_max: {output_params.summary_bullets_max}")
             logger.info(f"output_params.include: {output_params.include}")
         
-        return await run_full_pipeline(data, output_params)
+        # Run pipeline
+        result = await run_full_pipeline(data, output_params)
+
+        # Default: respond with punctuated text only (text/plain) when no query params provided
+        no_query_params = (
+            formats is None
+            and include is None
+            and ts is None
+            and summary is None
+            and summary_bullets_max is None
+            and summary_lang is None
+        )
+
+        if no_query_params:
+            # Compose plain text with transcript and summary (bullets + abstract)
+            parts: List[str] = []
+            if result.transcript_punct:
+                parts.append(result.transcript_punct)
+            # Append summary if available
+            if result.summary:
+                bullets = result.summary.get("bullets") if isinstance(result.summary, dict) else None
+                abstract = result.summary.get("abstract") if isinstance(result.summary, dict) else None
+                lines: List[str] = []
+                if bullets:
+                    lines.append("\n\n# Summary Points\n")
+                    for b in bullets:
+                        lines.append(f"- {b}")
+                if abstract:
+                    # Add header separating abstract if bullets also present
+                    if bullets:
+                        lines.append("\n# Abstract\n")
+                    else:
+                        lines.append("\n\n# Abstract\n")
+                    lines.append(str(abstract))
+                if lines:
+                    parts.append("\n".join(lines))
+            return Response("\n".join(parts), media_type="text/plain; charset=utf-8")
+
+        # Otherwise, return structured JSON response
+        return result
