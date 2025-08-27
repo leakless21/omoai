@@ -1,0 +1,3 @@
+[submodule "src/omoai/chunkformer"]
+	path = src/omoai/chunkformer
+	url = https://github.com/leakless21/chunkformer.git
