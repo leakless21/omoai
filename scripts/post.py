@@ -308,7 +308,6 @@ def summarize_text(llm: Any, text: str, system_prompt: str, temperature: float =
     return {"bullets": bullets, "abstract": abstract}
 
 
-
 def _dedup_overlap(prev: str, nxt: str, max_tokens: int = 8) -> str:
     """Remove duplicated token overlap between previous buffer tail and next string head."""
     pt = prev.strip().split()
@@ -531,11 +530,15 @@ def _join_tokens_with_spacing(tokens: List[str]) -> str:
 
 def _force_preserve_with_alignment(original_text: str, llm_text: str, adopt_case: bool = True) -> str:
     """Keep original words order/content; adopt punctuation and optionally case from LLM.
-    This version is corrected to handle misplaced punctuation from the LLM.
+
+    Corrected behavior:
+    - When LLM inserts or replaces words, prefer the LLM words (respecting adopt_case).
+    - When LLM deletes words, remove those original words.
+    - Always preserve punctuation coming from the LLM, mapped to the LLM word it follows.
     """
     if not original_text:
         return llm_text or ""
-    
+
     orig_words = [t for t in _tokenize_words_and_punct(original_text) if _is_word(t)]
     llm_tokens = _tokenize_words_and_punct(llm_text or "")
     llm_words = [t for t in llm_tokens if _is_word(t)]
@@ -550,7 +553,7 @@ def _force_preserve_with_alignment(original_text: str, llm_text: str, adopt_case
     punct_after: Dict[int, List[str]] = {-1: []}
     for i in range(len(llm_words)):
         punct_after[i] = []
-    
+
     llw_idx = -1
     for tok in llm_tokens:
         if _is_word(tok):
@@ -563,37 +566,41 @@ def _force_preserve_with_alignment(original_text: str, llm_text: str, adopt_case
     sm = SequenceMatcher(None, a, b, autojunk=False)
 
     result_tokens: List[str] = []
+    # leading punctuation from LLM
     result_tokens.extend(punct_after.get(-1, []))
 
-    orig_word_idx = 0
-    llm_word_idx = 0
-
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == 'equal' or tag == 'replace':
-            for _ in range(i2 - i1):
-                if orig_word_idx >= len(orig_words) or llm_word_idx >= len(llm_words):
-                    continue
-                orig_word = orig_words[orig_word_idx]
-                llm_word = llm_words[llm_word_idx]
-                if adopt_case and orig_word.lower() == llm_word.lower():
-                    orig_word = llm_word
-                
-                result_tokens.append(orig_word)
-                result_tokens.extend(punct_after.get(llm_word_idx, []))
-                
-                orig_word_idx += 1
-                llm_word_idx += 1
-        elif tag == 'delete':
-            # Original words are deleted. We skip them to preserve the original text.
-            orig_word_idx += (i2 - i1)
-        elif tag == 'insert':
-            # LLM words are inserted. We skip the words but keep their punctuation.
-            for _ in range(j2 - j1):
-                if llm_word_idx >= len(llm_words):
-                    continue
-                result_tokens.extend(punct_after.get(llm_word_idx, []))
-                llm_word_idx += 1
-    
+        if tag == "equal":
+            # words matched: preserve original content, optionally adopt LLM case
+            for oi, lj in zip(range(i1, i2), range(j1, j2)):
+                orig_word = orig_words[oi]
+                llm_word = llm_words[lj]
+                if adopt_case:
+                    # use LLM casing for matched words
+                    out_word = llm_word
+                else:
+                    out_word = orig_word
+                result_tokens.append(out_word)
+                result_tokens.extend(punct_after.get(lj, []))
+        elif tag == "replace":
+            # LLM replaced original words: prefer LLM words (respect adopt_case)
+            for lj in range(j1, j2):
+                llm_word = llm_words[lj]
+                out_word = llm_word if adopt_case else llm_word.lower()
+                result_tokens.append(out_word)
+                result_tokens.extend(punct_after.get(lj, []))
+        elif tag == "delete":
+            # LLM deleted some original words: skip the original words (do not emit them)
+            # No addition to result_tokens here.
+            continue
+        elif tag == "insert":
+            # LLM inserted new words: emit them (respect adopt_case)
+            for lj in range(j1, j2):
+                llm_word = llm_words[lj]
+                out_word = llm_word if adopt_case else llm_word.lower()
+                result_tokens.append(out_word)
+                result_tokens.extend(punct_after.get(lj, []))
+
     return _join_tokens_with_spacing(result_tokens).strip()
 
 
@@ -1485,5 +1492,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

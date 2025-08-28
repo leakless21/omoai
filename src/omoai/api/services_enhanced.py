@@ -48,18 +48,22 @@ class ServiceMode:
 
 def get_service_mode() -> str:
     """
-    Determine which service mode to use based on configuration and environment.
-    
+    Determine which service mode to use based on application configuration.
+
     Returns:
         Service mode: 'script', 'memory', or 'auto'
     """
-    # Check environment variable override
-    mode = os.environ.get("OMOAI_SERVICE_MODE", "auto").lower()
-    
+    try:
+        config = get_config()
+        mode = getattr(config.api, "service_mode", "auto") or "auto"
+        mode = str(mode).lower()
+    except Exception:
+        # If config cannot be loaded, fall back to auto
+        mode = ServiceMode.AUTO
+
     if mode in [ServiceMode.SCRIPT_BASED, ServiceMode.IN_MEMORY, ServiceMode.AUTO]:
         return mode
-    
-    # Default to auto mode
+
     return ServiceMode.AUTO
 
 
@@ -133,20 +137,29 @@ async def postprocess_service(data: PostprocessRequest) -> PostprocessResponse:
     return postprocess_v1(data)
 
 
-async def run_full_pipeline(data: PipelineRequest) -> PipelineResponse:
+async def run_full_pipeline(data: PipelineRequest, output_params: Optional[dict] = None) -> PipelineResponse:
     """
     Smart full pipeline with automatic fallback.
-    
+
     Tries high-performance in-memory pipeline first, falls back to script-based.
+
+    Accepts optional output_params and forwards them to underlying implementations.
     """
     if await should_use_in_memory_service():
         try:
-            return await pipeline_v2(data)
+            # Forward output_params if supported by v2 implementation
+            try:
+                return await pipeline_v2(data, output_params)  # type: ignore
+            except TypeError:
+                return await pipeline_v2(data)  # fallback if v2 doesn't accept params
         except Exception as e:
             print(f"Warning: In-memory pipeline failed, falling back to script: {e}")
-    
-    # Fallback to script-based pipeline
-    return await pipeline_v1(data)
+
+    # Fallback to script-based pipeline; attempt to forward output_params if accepted
+    try:
+        return await pipeline_v1(data, output_params)  # type: ignore
+    except TypeError:
+        return await pipeline_v1(data)
 
 
 async def get_service_status() -> Dict[str, Any]:

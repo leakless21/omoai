@@ -408,6 +408,10 @@ class APIConfig(BaseModel):
         description="Dependencies to check in health endpoint"
     )
     
+    service_mode: str = Field(
+        default="auto",
+        description="Service mode for API server ('auto', 'script', 'memory')"
+    )
     @field_validator("temp_dir")
     @classmethod
     def validate_temp_dir(cls, v: Path) -> Path:

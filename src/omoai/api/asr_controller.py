@@ -212,7 +212,7 @@ class ASRModel:
         }
 
 
-from omoai.api.services import asr_service
+from omoai.api.services_enhanced import asr_service
 
 
 class ASRController(Controller):

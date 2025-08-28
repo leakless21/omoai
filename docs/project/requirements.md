@@ -16,7 +16,7 @@
 
 ### 1.3. Post-processing
 
-- **FR1.3.1:** The system must apply punctuation and capitalization to the raw transcript using a Large Language Model (LLM).
+- **FR1.3.1:** The system must use an enhanced, few-shot prompt to ensure high-quality punctuation and capitalization.
 - **FR1.3.2:** The system must generate a concise summary of the transcribed text using an LLM.
 - **FR1.3.3:** The system must be configurable to enable or disable summarization and other post-processing steps.
 

@@ -180,7 +180,7 @@ class PostprocessModel:
         }
 
 
-from omoai.api.services import postprocess_service
+from omoai.api.services_enhanced import postprocess_service
 
 
 class PostprocessController(Controller):

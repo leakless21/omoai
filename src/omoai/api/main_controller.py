@@ -77,7 +77,7 @@ class MainController(Controller):
         # Run pipeline
         result = await run_full_pipeline(data, output_params)
 
-        # Default: respond with punctuated text only (text/plain) when no query params provided
+        # Default: respond with JSON but exclude raw transcript unless explicitly requested
         no_query_params = (
             formats is None
             and include is None
@@ -88,6 +88,16 @@ class MainController(Controller):
         )
 
         if no_query_params:
+            # Return structured JSON response by default without raw transcript
+            # Only include punctuated transcript and summary by default
+            return PipelineResponse(
+                summary=result.summary,
+                segments=result.segments,
+                transcript_punct=result.transcript_punct
+            )
+
+        # For backward compatibility, handle text/plain response when specifically requested
+        if formats == ["text"] or (formats and "text" in formats and len(formats) == 1):
             # Compose plain text with transcript and summary (bullets + abstract)
             parts: List[str] = []
             if result.transcript_punct:
@@ -112,5 +122,17 @@ class MainController(Controller):
                     parts.append("\n".join(lines))
             return Response("\n".join(parts), media_type="text/plain; charset=utf-8")
 
-        # Otherwise, return structured JSON response
-        return result
+        # Otherwise, return structured JSON response but exclude raw transcript unless explicitly requested
+        # Check if transcript_raw is explicitly requested in include parameter
+        include_raw = include and "transcript_raw" in include
+        
+        if include_raw:
+            # If raw transcript is explicitly requested, return full result
+            return result
+        else:
+            # Exclude raw transcript from response
+            return PipelineResponse(
+                summary=result.summary,
+                segments=result.segments,
+                transcript_punct=result.transcript_punct
+            )

@@ -9,6 +9,7 @@ The project uses a single `config.yaml` file located in the project root. This f
 ### Main Sections
 
 #### 1. Paths Configuration
+
 ```yaml
 paths:
   chunkformer_dir: /home/cetech/omoai/chunkformer
@@ -17,6 +18,7 @@ paths:
 ```
 
 #### 2. ASR Configuration
+
 ```yaml
 asr:
   total_batch_duration_s: 1800
@@ -28,6 +30,7 @@ asr:
 ```
 
 #### 3. LLM Configuration
+
 ```yaml
 llm:
   model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
@@ -40,6 +43,7 @@ llm:
 ```
 
 #### 4. API Configuration (New)
+
 ```yaml
 api:
   # Server configuration
@@ -105,37 +109,39 @@ def service_function():
 
 ### API-Specific Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `host` | "0.0.0.0" | Server bind address |
-| `port` | 8000 | Server port |
-| `max_body_size_mb` | 100 | Maximum request body size in MB |
-| `request_timeout_seconds` | 300 | Request timeout |
-| `temp_dir` | "/tmp" | Temporary file directory |
-| `cleanup_temp_files` | true | Whether to clean up temp files |
-| `enable_progress_output` | true | Show progress in terminal |
-| `health_check_dependencies` | [list] | Dependencies to check in health endpoint |
+| Parameter                   | Default   | Description                              |
+| --------------------------- | --------- | ---------------------------------------- |
+| `host`                      | "0.0.0.0" | Server bind address                      |
+| `port`                      | 8000      | Server port                              |
+| `max_body_size_mb`          | 100       | Maximum request body size in MB          |
+| `request_timeout_seconds`   | 300       | Request timeout                          |
+| `temp_dir`                  | "/tmp"    | Temporary file directory                 |
+| `cleanup_temp_files`        | true      | Whether to clean up temp files           |
+| `enable_progress_output`    | true      | Show progress in terminal                |
+| `health_check_dependencies` | [list]    | Dependencies to check in health endpoint |
 
 ### Customization Examples
 
 #### Production Environment
+
 ```yaml
 api:
-  host: "127.0.0.1"  # More restrictive binding
+  host: "127.0.0.1" # More restrictive binding
   port: 8080
-  max_body_size_mb: 500  # Larger files
-  temp_dir: "/var/tmp/omoai"  # Dedicated temp space
+  max_body_size_mb: 500 # Larger files
+  temp_dir: "/var/tmp/omoai" # Dedicated temp space
   cleanup_temp_files: true
 ```
 
 #### Development Environment
+
 ```yaml
 api:
   host: "0.0.0.0"
   port: 8000
-  max_body_size_mb: 50   # Smaller for testing
-  temp_dir: "./tmp"      # Local temp directory
-  enable_progress_output: true  # Verbose output
+  max_body_size_mb: 50 # Smaller for testing
+  temp_dir: "./tmp" # Local temp directory
+  enable_progress_output: true # Verbose output
 ```
 
 ## Running with uv
@@ -165,6 +171,7 @@ The health check endpoint (`/health`) uses the configuration to:
 4. **Report Settings**: Shows current configuration values
 
 Example health check response:
+
 ```json
 {
   "status": "healthy",
@@ -194,3 +201,15 @@ The configuration system replaces previous hardcoded values:
 - **After**: Configurable via `get_config().api.max_body_size_mb`
 
 This provides much better flexibility and maintainability for different deployment environments.
+
+### Service Mode
+
+The `api.service_mode` setting in `config.yaml` controls which service implementation the application uses for its core operations. This setting allows users to choose between performance, robustness, and automatic selection.
+
+There are three possible values for `api.service_mode`:
+
+- **`"auto"`**: This is the default setting. When enabled, the system automatically selects the best available service. It will use the high-performance in-memory v2 services if they are healthy and available; otherwise, it will fall back to the slower but more robust script-based v1 services. This option provides a good balance between performance and reliability without requiring manual intervention.
+
+- **`"memory"`**: This setting forces the use of the high-performance, in-memory v2 services. These services are optimized for speed and low latency, making them ideal for production environments where performance is critical. However, they may be less resilient to certain types of errors or resource constraints compared to the script-based services.
+
+- **`"script"`**: This setting forces the use of the slower, but more robust, script-based v1 services. These services are generally more resilient and can handle a wider variety of edge cases and error conditions. They are a good choice for development, testing, or in environments where stability is prioritized over raw performance.

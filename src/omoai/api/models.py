@@ -44,6 +44,7 @@ class PipelineResponse(BaseModel):
     summary: dict
     segments: list
     # Punctuated transcript text for convenience (used for default text/plain responses)
+    # Note: Raw transcript is excluded by default for privacy and data minimization
     transcript_punct: str | None = None
 
 

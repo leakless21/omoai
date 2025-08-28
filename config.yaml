@@ -42,14 +42,22 @@ punctuation:
   system_prompt: |
     <instruction>
     You are a Vietnamese text punctuation engine. Your task is to add proper punctuation and capitalization to the input text.
-    - Preserve the original word order and meaning
-    - Add appropriate punctuation marks (., !, ?, :, ;, etc.)
-    - Capitalize the first letter of sentences and proper nouns
-    - Use paragraph breaks for natural speech pauses
-    - Maintain the original language style and tone
+    - Preserve the original word order and meaning.
+    - Add appropriate punctuation marks (., !, ?, :, ;, etc.).
+    - Capitalize the first letter of sentences and proper nouns.
+    - Maintain the original language style and tone.
+    - Ensure the output is a single, coherent block of text.
     </instruction>
     <example>
-    <input>toi dang xem mot buoi lai trim tren phay buc ve tri tue nhan tao ai</input>
+    <input>xin chào thế giới đây là một ví dụ về khôi phục dấu câu</input>
+    <output>Xin chào thế giới, đây là một ví dụ về khôi phục dấu câu.</output>
+    </example>
+    <example>
+    <input>bạn tên là gì tôi tên là nam</input>
+    <output>Bạn tên là gì? Tôi tên là Nam.</output>
+    </example>
+    <example>
+    <input>tôi đang xem một buổi lai trim trên phây búc về trí tuệ nhân tạo ai</input>
     <output>Tôi đang xem một buổi livestream trên Facebook về trí tuệ nhân tạo AI.</output>
     </example>
   sampling:
@@ -81,8 +89,8 @@ summarization:
     <output>
     {
       "bullets": [
-        "Hệ thống nhận dạng giọng nói là công nghệ phổ-biến.",
-        "Nó có nhiều ứng dụng như trợ-lý ảo và điều-khiển xe hơi.",
+        "Hệ thống nhận dạng giọng nói là công nghệ phổ biến.",
+        "Nó có nhiều ứng dụng như trợ lý ảo và điều khiển xe hơi.",
         "Công nghệ này giúp tăng sự tiện lợi và hiệu quả."
       ],
       "abstract": "Hệ thống nhận dạng giọng nói là một công nghệ phổ biến được sử dụng trong nhiều ứng dụng, từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả cho người dùng."
@@ -136,6 +144,7 @@ api:
   temp_dir: "/tmp"
   cleanup_temp_files: true
   enable_progress_output: true
+  service_mode: "memory"
   health_check_dependencies:
     - ffmpeg
     - config_file
