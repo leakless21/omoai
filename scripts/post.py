@@ -611,8 +611,10 @@ def _distribute_punct_to_segments(
 
     Handles word count mismatches by using proportional distribution and fuzzy matching.
     """
-    if not punctuated_text.strip() or not segments:
-        return [dict(s) for s in segments]
+    if not segments:
+        return []
+    if not punctuated_text.strip():
+        return [{"text_punct": "", **s} for s in segments]
     
     # Get original segments with text
     text_segments = [(i, s) for i, s in enumerate(segments) if (s.get("text_raw") or "").strip()]
@@ -650,41 +652,133 @@ def _distribute_exact_match(punctuated_text: str, segments: List[Dict[str, Any]]
 
 
 def _distribute_fuzzy_match(punctuated_text: str, segments: List[Dict[str, Any]], original_concat: str) -> List[Dict[str, Any]]:
-    """Distribute using simple proportional matching when word counts don't match."""
+    """Distribute using a word-level alignment between original_concat and punctuated_text.
     
-    # Simple approach: distribute proportionally by character position
-    total_orig_chars = len(original_concat)
-    total_punct_chars = len(punctuated_text)
-    
-    if total_orig_chars == 0:
+    Strategy:
+    - Tokenize both original_concat and punctuated_text into words and punctuation.
+    - Use SequenceMatcher on lowercased word sequences to get opcodes.
+    - Map LLM words (and their trailing punctuation) back to original word indices.
+    - For insertions (LLM-only words), attach them to the nearest original word (prefer previous).
+    - For replacements of unequal sizes, distribute LLM words across the original span proportionally.
+    - Finally, assemble per-segment punctuated text by collecting mapped outputs for the original word indices that belong to each segment.
+    """
+    # Defensive checks
+    if not original_concat:
         return [dict(s) for s in segments]
-    
+    if not punctuated_text:
+        # Nothing to distribute, return empty punct fields
+        out_segments = []
+        for s in segments:
+            out_segments.append({**s, "text_punct": ""})
+        return out_segments
+
+    # Build original word list and per-segment word counts
+    orig_words = _split_words(original_concat)
+    seg_word_counts: List[int] = [len(_split_words((s.get("text_raw") or "").strip())) for s in segments]
+
+    if not orig_words:
+        return [dict(s) for s in segments]
+
+    # Tokenize LLM text into words and punctuation and map punctuation to following word index
+    llm_tokens = _tokenize_words_and_punct(punctuated_text)
+    llm_words = [t for t in llm_tokens if _is_word(t)]
+
+    # Map punctuation that follows LLM words (index -1 stores leading punctuation)
+    punct_after: Dict[int, List[str]] = {-1: []}
+    for i in range(len(llm_words)):
+        punct_after[i] = []
+    llw_idx = -1
+    for tok in llm_tokens:
+        if _is_word(tok):
+            llw_idx += 1
+        else:
+            # punctuation
+            punct_after.setdefault(llw_idx, []).append(tok)
+
+    # Sequence match between original words and llm words (lowercased)
+    a = [w.lower() for w in orig_words]
+    b = [w.lower() for w in llm_words]
+    sm = SequenceMatcher(None, a, b, autojunk=False)
+
+    # Prepare mapping: for each original word index, a list of emitted LLM word+punct strings
+    mapped_per_orig: List[List[str]] = [[] for _ in range(len(orig_words))]
+
+    # Helper to render an llm word with its punctuation
+    def render_llm_word(idx: int) -> str:
+        w = llm_words[idx]
+        toks = [w] + punct_after.get(idx, [])
+        # Join tokens with spacing rules: attach punctuation to word
+        return _join_tokens_with_spacing(_tokenize_words_and_punct(" ".join(toks)))
+
+    # Iterate opcodes and distribute LLM words
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            # one-to-one mapping
+            for oi, lj in zip(range(i1, i2), range(j1, j2)):
+                mapped_per_orig[oi].append(render_llm_word(lj))
+        elif tag == "replace":
+            # distribute LLM words across original span proportionally
+            orig_span = i2 - i1
+            llm_span = j2 - j1
+            if orig_span <= 0:
+                # treat as pure insert
+                attach_idx = i1 - 1 if i1 > 0 else 0
+                for lj in range(j1, j2):
+                    tgt = attach_idx
+                    if 0 <= tgt < len(mapped_per_orig):
+                        mapped_per_orig[tgt].append(render_llm_word(lj))
+            elif llm_span == 0:
+                # deletion: nothing to emit for those original words
+                continue
+            elif orig_span == llm_span:
+                for oi, lj in zip(range(i1, i2), range(j1, j2)):
+                    mapped_per_orig[oi].append(render_llm_word(lj))
+            else:
+                # proportional distribution of ljs to oi indices
+                for offset_l, lj in enumerate(range(j1, j2)):
+                    # compute fractional position within llm span and map to orig index
+                    frac = offset_l / max(1, llm_span)
+                    oi_rel = int(frac * orig_span)
+                    oi = i1 + min(orig_span - 1, oi_rel)
+                    mapped_per_orig[oi].append(render_llm_word(lj))
+        elif tag == "delete":
+            # original words removed by LLM: leave their mapped list empty (deleted)
+            continue
+        elif tag == "insert":
+            # LLM inserted words with no original counterpart: attach to previous original word if exists, else next
+            attach_idx = i1 - 1 if i1 > 0 else i1
+            # clamp attach_idx
+            if attach_idx < 0:
+                attach_idx = 0
+            if attach_idx >= len(mapped_per_orig):
+                attach_idx = len(mapped_per_orig) - 1
+            for lj in range(j1, j2):
+                mapped_per_orig[attach_idx].append(render_llm_word(lj))
+
+    # Now assemble per-segment punctuated text based on original word indices
     out_segments: List[Dict[str, Any]] = []
-    char_cursor = 0
-    
-    for s in segments:
+    word_cursor = 0
+    for seg_idx, s in enumerate(segments):
         raw_text = (s.get("text_raw") or "").strip()
-        if not raw_text:
+        cnt = seg_word_counts[seg_idx]
+        if cnt == 0:
             out_segments.append({**s, "text_punct": ""})
             continue
-        
-        # Calculate proportional position in punctuated text
-        start_ratio = char_cursor / total_orig_chars
-        end_ratio = (char_cursor + len(raw_text)) / total_orig_chars
-        
-        punct_start = int(start_ratio * total_punct_chars)
-        punct_end = int(end_ratio * total_punct_chars)
-        
-        # Extract corresponding section from punctuated text
-        punct_section = punctuated_text[punct_start:punct_end].strip()
-        
-        # If section is too different, use basic punctuation
-        if not punct_section or len(punct_section) < len(raw_text) * 0.5:
-            punct_section = _add_basic_punctuation(raw_text)
-        
-        out_segments.append({**s, "text_punct": punct_section})
-        char_cursor += len(raw_text) + 1  # +1 for space
-    
+        seg_tokens: List[str] = []
+        # collect mapped outputs for each original word in this segment
+        for wi in range(word_cursor, min(word_cursor + cnt, len(mapped_per_orig))):
+            seg_tokens.extend(mapped_per_orig[wi])
+        word_cursor += cnt
+        # Fallback: if nothing mapped (e.g., LLM deleted all words), leave empty
+        if not seg_tokens:
+            out_segments.append({**s, "text_punct": ""})
+        else:
+            # Join tokens ensuring proper spacing/punctuation
+            # seg_tokens may already contain word+punct strings; simply join with space and normalize whitespace
+            piece = " ".join(t.strip() for t in seg_tokens if t.strip()).strip()
+            # Cleanup double spaces before punctuation introduced by joins
+            piece = re.sub(r"\s+([,\.!\?:;…])", r"\1", piece)
+            out_segments.append({**s, "text_punct": piece})
     return out_segments
 
 
@@ -701,6 +795,113 @@ def _add_basic_punctuation(text: str) -> str:
         text += '.'
     
     return text
+
+
+# --- Character-level alignment and quality metrics ---
+def _align_chars(orig_word: str, llm_word: str) -> Tuple[List[str], List[str], List[str]]:
+    """Align characters between two words using SequenceMatcher.
+    Returns: (orig_chars, llm_chars, tags) where tags are 'equal', 'replace', 'delete', 'insert'
+    """
+    sm = SequenceMatcher(None, orig_word, llm_word)
+    orig_chars: List[str] = []
+    llm_chars: List[str] = []
+    tags: List[str] = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        orig_chars.extend(list(orig_word[i1:i2]))
+        llm_chars.extend(list(llm_word[j1:j2]))
+        tags.extend([tag] * max(i2 - i1, j2 - j1))
+    return orig_chars, llm_chars, tags
+
+
+def _compute_wer(orig_words: List[str], llm_words: List[str]) -> float:
+    """Compute Word Error Rate (WER) between two lists of words."""
+    if not orig_words:
+        return 0.0 if not llm_words else 1.0
+    sm = SequenceMatcher(None, orig_words, llm_words)
+    edits = 0
+    insertions = 0
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'replace':
+            edits += max(i2 - i1, j2 - j1)
+        elif tag == 'delete':
+            edits += i2 - i1
+        elif tag == 'insert':
+            edits += j2 - j1
+            insertions += j2 - j1
+    # Use (number of edits) / (number of words in reference + number of insertions)
+    # This is a common alternative WER calculation method
+    denominator = len(orig_words) + insertions
+    return edits / denominator if denominator > 0 else 0.0
+
+
+def _compute_cer(orig_text: str, llm_text: str) -> float:
+    """Compute Character Error Rate (CER) between two strings."""
+    if not orig_text:
+        return 0.0 if not llm_text else 1.0
+    sm = SequenceMatcher(None, orig_text, llm_text)
+    s = d = i = 0
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'replace':
+            s += max(i2 - i1, j2 - j1)
+        elif tag == 'delete':
+            d += i2 - i1
+        elif tag == 'insert':
+            i += j2 - j1
+    n = len(orig_text)
+    return (s + d + i) / n
+
+
+def _compute_per(orig_text: str, llm_text: str) -> float:
+    """Compute Punctuation Error Rate (PER) by comparing only punctuation marks."""
+    orig_punct = [c for c in orig_text if c in _PUNCT_CHARS]
+    llm_punct = [c for c in llm_text if c in _PUNCT_CHARS]
+    if not orig_punct:
+        return 0.0 if not llm_punct else 1.0
+    sm = SequenceMatcher(None, orig_punct, llm_punct)
+    s = d = i = 0
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'replace':
+            s += max(i2 - i1, j2 - j1)
+        elif tag == 'delete':
+            d += i2 - i1
+        elif tag == 'insert':
+            i += j2 - j1
+    n = len(orig_punct)
+    return (s + d + i) / n
+
+
+def _compute_uwer_fwer(orig_text: str, llm_text: str) -> Tuple[float, float]:
+    """Compute Unpunctuated WER (U-WER) and Formatted WER (F-WER)."""
+    # Remove punctuation for U-WER
+    orig_no_punct = ''.join(c for c in orig_text if c not in _PUNCT_CHARS)
+    llm_no_punct = ''.join(c for c in llm_text if c not in _PUNCT_CHARS)
+    orig_words_u = _split_words(orig_no_punct)
+    llm_words_u = _split_words(llm_no_punct)
+    uwer = _compute_wer(orig_words_u, llm_words_u)
+    # F-WER is WER on the original (punctuated) text
+    orig_words_f = _split_words(orig_text)
+    llm_words_f = _split_words(llm_text)
+    fwer = _compute_wer(orig_words_f, llm_words_f)
+    return uwer, fwer
+
+
+def _generate_human_readable_diff(orig_text: str, llm_text: str) -> str:
+    """Generate a side-by-side human-readable diff with color codes."""
+    sm = SequenceMatcher(None, orig_text, llm_text)
+    diff_lines: List[str] = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        orig_seg = orig_text[i1:i2]
+        llm_seg = llm_text[j1:j2]
+        if tag == 'equal':
+            diff_lines.append(f"  {orig_seg}")
+        elif tag == 'replace':
+            diff_lines.append(f"- {orig_seg}")
+            diff_lines.append(f"+ {llm_seg}")
+        elif tag == 'delete':
+            diff_lines.append(f"- {orig_seg}")
+        elif tag == 'insert':
+            diff_lines.append(f"+ {llm_seg}")
+    return "\n".join(diff_lines)
 
 
 def _segmentwise_punctuate_segments(

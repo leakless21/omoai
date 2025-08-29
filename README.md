@@ -6,7 +6,8 @@ A production-ready pipeline to transcribe and summarize long-form audio (e.g., p
 
 - **High-quality ASR**: Chunkformer-based decoding with timestamped segments.
 - **Long-audio support**: Chunked decoding for multi-hour recordings.
-- **Punctuation & capitalization**: LLM adds punctuation and sentence casing; preserves original word order by default.
+- **Enhanced Punctuation & capitalization**: Advanced LLM-based punctuation with character-level alignment and quality metrics.
+- **Quality Assessment**: Comprehensive metrics including WER, CER, PER, U-WER, and F-WER for evaluating punctuation accuracy.
 - **Summarization**: Bullet points and abstract (single-pass or map-reduce for long texts).
 - **Config-driven**: Single `config.yaml` controls paths, ASR, LLM, API, and outputs.
 - **Outputs**: Always writes `final.json`; optionally writes transcript and summary text files. Programmable formatters available for JSON/Text/SRT/VTT/Markdown.
@@ -66,7 +67,7 @@ asr:
   chunk_size: 64
   left_context_size: 128
   right_context_size: 128
-  device: auto         # auto -> cuda if available else cpu
+  device: auto # auto -> cuda if available else cpu
   autocast_dtype: fp16 # on CUDA
 
 llm:
@@ -76,10 +77,10 @@ llm:
   gpu_memory_utilization: 0.90
   max_num_seqs: 2
   max_num_batched_tokens: 512
-  trust_remote_code: true  # Only enable for trusted models
+  trust_remote_code: true # Only enable for trusted models
 
 punctuation:
-  llm: { ... }             # Overrides; inherits from llm when omitted
+  llm: { ... } # Overrides; inherits from llm when omitted
   preserve_original_words: true
   auto_switch_ratio: 0.98
   auto_margin_tokens: 128
@@ -87,13 +88,19 @@ punctuation:
   enable_paragraphs: true
   join_separator: " "
   paragraph_gap_seconds: 3.0
+  # Enhanced alignment settings
+  alignment:
+    use_levenshtein: true # Use Levenshtein distance for word alignment
+    enable_character_level: true # Enable character-level refinement
+    compute_quality_metrics: true # Calculate WER, CER, PER, U-WER, F-WER
+    generate_diffs: true # Generate human-readable diffs
   system_prompt: |
     <instruction>
     You are a Vietnamese text punctuation engine...
     </instruction>
 
 summarization:
-  llm: { ... }             # Overrides; inherits from llm when omitted
+  llm: { ... } # Overrides; inherits from llm when omitted
   map_reduce: false
   auto_switch_ratio: 0.98
   auto_margin_tokens: 256
@@ -259,7 +266,6 @@ print(written)
 uv run pytest
 ```
 
-
 ## Project structure
 
 ```text
@@ -287,11 +293,13 @@ uv run pytest
 
 ## Documentation
 
-- `docs/architecture/index.md`
-- `docs/user_guide/configuration.md`
-- `docs/development/best_practices.md`
-- `docs/project/requirements.md`
-- `docs/README.md`
+- `docs/architecture/index.md` - Overall architecture overview
+- `docs/architecture/punctuation.md` - Enhanced punctuation alignment details
+- `docs/USAGE.md` - Comprehensive usage guide
+- `docs/user_guide/configuration.md` - Configuration reference
+- `docs/development/best_practices.md` - Development guidelines
+- `docs/project/requirements.md` - Project requirements
+- `docs/README.md` - Documentation overview
 
 ## License
 
@@ -307,7 +315,8 @@ Một pipeline xử lý âm thanh để nhận dạng giọng nói (ASR), chấm
 
 - **ASR chất lượng cao** với dấu thời gian theo đoạn.
 - **Hỗ trợ audio dài** (hàng giờ) bằng giải mã theo khối.
-- **Chấm câu & viết hoa** bằng LLM, giữ nguyên thứ tự từ gốc theo mặc định.
+- **Chấm câu & viết hoa nâng cao**: Hệ thống chấm câu thông minh với căn chỉnh ký tự và đánh giá chất lượng.
+- **Đánh giá chất lượng**: Các chỉ số toàn diện bao gồm WER, CER, PER, U-WER, và F-WER để đánh giá độ chính xác của dấu câu.
 - **Tóm tắt**: gạch đầu dòng và đoạn tóm tắt (đơn hoặc map-reduce cho văn bản dài).
 - **Cấu hình tập trung** trong `config.yaml`.
 - **Đầu ra**: luôn có `final.json`; tùy chọn xuất `transcript.txt`, `summary.txt`. Có thể tạo SRT/VTT/Markdown qua API thư viện.

@@ -143,19 +143,17 @@ The `scripts/post.py` module contains the essential functions for handling the p
   4.  **Distribution Strategy**:
       - **Exact Match**: If the number of words in `original_concat` and `punctuated_text` is identical, it calls [`_distribute_exact_match`](scripts/post.py:635). This function simply distributes the words from `punctuated_text` back into the original segments based on the original word count per segment.
         - **Example**: If segment 1 had 2 words and segment 2 had 3 words, it takes the first 2 words from the punctuated text for segment 1 and the next 3 for segment 2.
-      - **Fuzzy Match**: If word counts differ, it calls [`_distribute_fuzzy_match`](scripts/post.py:652). This is a more complex alignment:
-        - It calculates the total character length of `original_concat` and `punctuated_text`.
-        - For each original segment, it calculates what proportion of the total `original_concat` characters that segment's text represents.
-        - It then applies this same proportion to the `punctuated_text` to estimate the start and end character indices for the corresponding punctuated section.
-        - It extracts this `punct_section` from the `punctuated_text`.
-        - **Fallback**: If the extracted `punct_section` is too short or seems invalid (e.g., less than half the length of the original segment's text), it falls back to [`_add_basic_punctuation`](scripts/post.py:691), which simply capitalizes the first letter and adds a period at the end of the segment's original text.
-  5.  **Result Construction**: It constructs a new list of segments. Each segment is a copy of the original, but with its `text_punct` field populated by the distributed text (either from exact or fuzzy matching).
+      - **Levenshtein-based Alignment**: If word counts differ, it calls [`_distribute_punct_to_segments`](scripts/post.py:652). This function uses a more robust alignment based on the Levenshtein distance (edit distance) to map words from the punctuated text back to the original segments.
+        - **Word-Level Alignment**: It uses `difflib.SequenceMatcher` to find the optimal alignment between the original words and the punctuated words, handling insertions, deletions, and substitutions.
+        - **Character-Level Refinement**: For each aligned word pair, it performs a character-level alignment using [`_align_chars`](scripts/post.py:820) to precisely identify character-level differences (substitutions, insertions, deletions). This allows for a more granular understanding of the changes made by the punctuation model.
+        - **Mapping to Segments**: The aligned punctuated words are then distributed back to their corresponding original segments based on the word-level alignment, preserving the original segment boundaries and timings.
+  5.  **Result Construction**: It constructs a new list of segments. Each segment is a copy of the original, but with its `text_punct` field populated by the distributed text from the alignment process.
 - **Parameters**:
   - `punctuated_text` (str): The single string of punctuated text from the punctuation model.
     - **Example**: `"This is the first sentence. This is the second."`
   - `segments` (list[dict]): The original list of ASR segments, each with `start`, `end`, and `text`.
     - **Example**: `[{"start": 0.0, "end": 2.0, "text": "this is the first sentence"}, {"start": 2.0, "end": 4.0, "text": "this is the second"}]`
-- **Return Value**: A new list of segment dictionaries, where the `text` field is punctuated and the `start` and `end` timestamps are preserved from the original segments. The function intelligently distributes the punctuated text across the original segment boundaries.
+- **Return Value**: A new list of segment dictionaries, where the `text` field is punctuated and the `start` and `end` timestamps are preserved from the original segments. The function intelligently distributes the punctuated text across the original segment boundaries using a refined alignment process.
   - **Example**:
     ```json
     [
@@ -163,19 +161,102 @@ The `scripts/post.py` module contains the essential functions for handling the p
       { "start": 2.0, "end": 4.0, "text": "This is the second." }
     ]
     ```
-  - **Detailed Example**:
-    - **Input**:
-      - `punctuated_text`: `"Hello, world. How are you today?"`
-      - `segments`: `[{start: 0, end: 1, text: "hello world"}, {start: 1, end: 2, text: "how are you today"}]`
-    - **Process**:
-      1. `_force_preserve_with_alignment` is called, which returns: `[("Hello", ","), ("world", "."), ("How", ""), ("are", ""), ("you", ""), ("today", "?")]`.
-      2. The function then iterates through the original segments. For the first segment (`"hello world"`), it takes the first two aligned words and punctuation: `"Hello,"` and `"world."`. It joins them to form `"Hello, world."`.
-      3. For the second segment (`"how are you today"`), it takes the remaining words and punctuation: `"How"`, `"are"`, `"you"`, and `"today?"`. It joins them to form `"How are you today?"`.
-      4. The original timestamps are preserved for each new segment.
-    - **Output**:
-      ```json
-      [
-        { "start": 0, "end": 1, "text": "Hello, world." },
-        { "start": 1, "end": 2, "text": "How are you today?" }
-      ]
-      ```
+
+## 3. Quality Metrics and Diff Generation
+
+To evaluate the performance of the punctuation model and the alignment process, several quality metrics are computed. These metrics provide insights into the accuracy of the punctuation restoration at different levels (word, character, punctuation).
+
+### `_compute_wer(orig_words: list[str], llm_words: list[str]) -> float`
+
+- **Purpose**: Computes the Word Error Rate (WER) between the original ASR words and the punctuated LLM words. WER is a common metric for evaluating speech recognition and text generation tasks.
+- **Formula**: `(S + D + I) / (N + I)`, where S is the number of substitutions, D is the number of deletions, I is the number of insertions, and N is the number of words in the original text. This formula accounts for insertions in the denominator to provide a more accurate error rate.
+- **Implementation**: Uses `difflib.SequenceMatcher` to find the optimal alignment and counts the edit operations.
+- **Return Value**: A float representing the WER (lower is better).
+
+### `_compute_cer(orig_text: str, llm_text: str) -> float`
+
+- **Purpose**: Computes the Character Error Rate (CER) between the original ASR text and the punctuated LLM text. CER provides a more granular measure of accuracy at the character level.
+- **Formula**: `(S + D + I) / N`, where S, D, I are substitutions, deletions, insertions of characters, and N is the number of characters in the original text.
+- **Implementation**: Uses `difflib.SequenceMatcher` on the character level.
+- **Return Value**: A float representing the CER (lower is better).
+
+### `_compute_per(orig_text: str, llm_text: str) -> float`
+
+- **Purpose**: Computes the Punctuation Error Rate (PER) by comparing only the punctuation marks in the original and LLM texts. This metric specifically evaluates the accuracy of punctuation restoration.
+- **Formula**: Similar to WER/CER, but calculated only on punctuation characters (e.g., `, . ! ? : ;`).
+- **Implementation**: Extracts punctuation characters from both texts and then applies the WER calculation logic.
+- **Return Value**: A float representing the PER (lower is better).
+
+### `_compute_uwer_fwer(orig_text: str, llm_text: str) -> tuple[float, float]`
+
+- **Purpose**: Computes Unpunctuated WER (U-WER) and Formatted WER (F-WER).
+  - **U-WER**: Evaluates the word error rate after removing all punctuation from both texts. This measures the underlying word recognition accuracy, independent of punctuation.
+  - **F-WER**: Evaluates the word error rate on the original, punctuated texts. This measures the overall quality including both word recognition and punctuation.
+- **Implementation**:
+  - For U-WER, punctuation is stripped from both texts before computing WER.
+  - For F-WER, WER is computed directly on the original and punctuated texts.
+- **Return Value**: A tuple containing two floats: `(uwer, fwer)`.
+
+### `_generate_human_readable_diff(orig_text: str, llm_text: str) -> str`
+
+- **Purpose**: Generates a side-by-side, human-readable diff between the original and punctuated texts. This is useful for qualitative analysis and debugging.
+- **Format**: Uses a simple line-based diff format:
+  - Lines starting with `  ` (two spaces) indicate unchanged text.
+  - Lines starting with `-` indicate text present in the original but not in the LLM output (deletions).
+  - Lines starting with `+` indicate text present in the LLM output but not in the original (insertions).
+- **Implementation**: Uses `difflib.SequenceMatcher` to identify differences and formats them into the diff string.
+- **Return Value**: A string representing the human-readable diff.
+
+### `_align_chars(orig_word: str, llm_word: str) -> tuple[list[str], list[str], list[str]]`
+
+- **Purpose**: Performs a character-level alignment between two words using `difflib.SequenceMatcher`. This function is a helper for the more granular analysis within the `_distribute_punct_to_segments` function.
+- **Return Value**: A tuple containing three lists:
+  1.  `orig_chars`: List of characters from the original word.
+  2.  `llm_chars`: List of characters from the LLM word.
+  3.  `tags`: List of tags (`'equal'`, `'replace'`, `'delete'`, `'insert'`) describing the relationship between characters at each position.
+
+## 4. Enhanced Alignment Algorithm
+
+The punctuation alignment system has been enhanced with a sophisticated algorithm that combines word-level and character-level alignment to accurately distribute punctuation from the LLM output back to the original ASR segments.
+
+### `_distribute_punct_to_segments(original_words: list[str], llm_words: list[str], segments: list[dict]) -> list[dict]`
+
+- **Purpose**: Distributes punctuated words from the LLM output back to the original ASR segments using a robust alignment algorithm that handles insertions, deletions, and substitutions.
+- **Detailed Logic**:
+  1.  **Word-Level Alignment**: Uses `difflib.SequenceMatcher` to find the optimal alignment between original words and LLM words, identifying matches, substitutions, insertions, and deletions.
+  2.  **Character-Level Refinement**: For each aligned word pair, performs character-level alignment using `_align_chars` to precisely identify character-level differences.
+  3.  **Segment Mapping**: Maps aligned words back to their original segments based on word indices, preserving segment boundaries and timings.
+  4.  **Handling Deletions**: When words are deleted in the LLM output, the corresponding `text_punct` field is left empty to maintain alignment integrity.
+  5.  **Punctuation Preservation**: Ensures that punctuation from the LLM output is correctly associated with the appropriate words in each segment.
+- **Parameters**:
+  - `original_words` (list[str]): List of words from the original ASR segments.
+  - `llm_words` (list[str]): List of words from the punctuated LLM output.
+  - `segments` (list[dict]): Original ASR segments with timestamps.
+- **Return Value**: Updated list of segments with `text_punct` fields populated with aligned punctuated text.
+
+### `_distribute_fuzzy_match(original_words: list[str], llm_words: list[str], segments: list[dict]) -> list[dict]`
+
+- **Purpose**: Handles cases where the LLM output significantly differs from the original text, using fuzzy matching to align words.
+- **Enhanced Logic**:
+  1.  **Word Deletion Handling**: When the LLM deletes words present in the original, the corresponding `text_punct` fields are left empty rather than applying basic punctuation.
+  2.  **Alignment Preservation**: Maintains the original segment structure even when the LLM output has substantial differences.
+  3.  **Quality Metrics**: Computes WER, CER, and PER to assess the quality of the alignment.
+- **Parameters**: Same as `_distribute_punct_to_segments`.
+- **Return Value**: Updated list of segments with best-effort punctuation alignment.
+
+## 5. Integration with Quality Assessment
+
+The enhanced punctuation alignment system integrates quality assessment metrics to provide comprehensive feedback on the punctuation restoration process:
+
+### Quality Metrics Integration
+
+- **WER Calculation**: Enhanced WER calculation that accounts for insertions in the denominator for more accurate error rates.
+- **Multi-level Analysis**: Provides metrics at word, character, and punctuation levels for comprehensive evaluation.
+- **Diff Generation**: Creates human-readable diffs for qualitative analysis and debugging.
+- **Alignment Confidence**: Uses character-level alignment to assess confidence in word-level alignments.
+
+### Performance Optimization
+
+- **Efficient Algorithms**: Uses optimized sequence matching algorithms for both word-level and character-level alignment.
+- **Memory Management**: Handles large texts efficiently by processing alignments in chunks when necessary.
+- **Robust Error Handling**: Gracefully handles edge cases such as empty inputs, significant mismatches, and punctuation-only segments.

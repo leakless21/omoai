@@ -165,7 +165,7 @@ def punctuate_transcript(
     processor: Optional[VLLMProcessor] = None,
 ) -> List[ASRSegment]:
     """
-    Add punctuation to ASR transcript segments.
+    Add punctuation to ASR transcript segments using enhanced alignment algorithm.
     
     Args:
         asr_result: ASR processing result
@@ -194,8 +194,85 @@ def punctuate_transcript(
     if processor is None:
         processor = VLLMProcessor(**llm_config)
     
-    # For now, implement a simple segment-wise punctuation
-    # More sophisticated batching can be added later
+    # Import enhanced punctuation functions from scripts/post.py
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
+    
+    try:
+        from post import (
+            join_punctuated_segments,
+            _segmentwise_punctuate_segments,
+            _safe_distribute_punct_to_segments,
+        )
+        
+        # Convert ASR segments to the format expected by scripts/post.py
+        segments_for_post = [
+            {
+                "start": seg.start,
+                "end": seg.end,
+                "text": seg.text,
+                "confidence": seg.confidence
+            }
+            for seg in asr_result.segments
+        ]
+        
+        # Use enhanced punctuation with alignment
+        try:
+            # First, punctuate individual segments using the enhanced method
+            punctuated_segments = _segmentwise_punctuate_segments(
+                llm=processor.llm,
+                system_prompt=system_prompt,
+                max_model_len=processor.config.get("max_model_len", 8192),
+                segments=segments_for_post,
+                temperature=temperature,
+            )
+            
+            # Join punctuated segments using enhanced alignment algorithm
+            # This handles word-level and character-level alignment
+            final_segments = _safe_distribute_punct_to_segments(punctuated_segments)
+            
+            # Convert back to ASRSegment format
+            result_segments = []
+            for seg in final_segments:
+                result_segments.append(ASRSegment(
+                    start=seg.get("start", 0.0),
+                    end=seg.get("end", 0.0),
+                    text=seg.get("text_punct", seg.get("text", "")),
+                    confidence=seg.get("confidence", 0.0)
+                ))
+            
+            return result_segments
+            
+        except Exception as e:
+            print(f"Warning: Enhanced punctuation failed, using fallback: {e}")
+            # Fallback to simple segment-wise punctuation
+            return _fallback_punctuate_segments(asr_result, processor, system_prompt, temperature)
+            
+    except ImportError:
+        print("Warning: Enhanced punctuation functions not available, using fallback")
+        # Fallback to simple segment-wise punctuation
+        return _fallback_punctuate_segments(asr_result, processor, system_prompt, temperature)
+
+
+def _fallback_punctuate_segments(
+    asr_result: ASRResult,
+    processor: VLLMProcessor,
+    system_prompt: str,
+    temperature: float,
+) -> List[ASRSegment]:
+    """
+    Fallback punctuation method when enhanced functions are not available.
+    
+    Args:
+        asr_result: ASR processing result
+        processor: vLLM processor
+        system_prompt: System prompt for punctuation
+        temperature: Sampling temperature
+        
+    Returns:
+        List of segments with punctuation added
+    """
     punctuated_segments = []
     
     for segment in asr_result.segments:
@@ -211,7 +288,7 @@ def punctuate_transcript(
         
         try:
             punctuated_text = processor.generate_text(
-                messages, 
+                messages,
                 temperature=temperature,
                 max_tokens=len(segment.text.split()) + 20  # Allow for punctuation
             )
