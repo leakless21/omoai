@@ -20,19 +20,65 @@ The end-to-end workflow is as follows:
       }
       ```
 
-2.  **Controller Layer (`postprocess_controller.py`)**: The [`PunctuateController.punctuate_v2`](src/omoai/api/postprocess_controller.py:17) receives the request. It extracts the ASR segments and passes them to the `punctuate_text` service function.
+2.  **Controller Layer (`postprocess_controller.py`)**: The [`PunctuateController.punctuate_v2`](src/omoai/api/postprocess_controller.py:17) receives the request. It extracts the ASR segments and passes them to the `punctuate_text` service function in `services_v2.py`.
 
 3.  **Service Layer (`services_v2.py`)**: The [`punctuate_text`](src/omoai/api/services_v2.py:12) function orchestrates the punctuation process. It joins the text from all segments into a single string to be sent to the punctuation model.
 
     - **Example**: From the segments above, the joined text would be `"hello world how are you today"`.
+    - It then retrieves the `VLLMProcessor` instance (often a singleton) which acts as a client to the vLLM inference server. This processor is a wrapper around the `vllm.LLM` class, providing a simplified interface for generating text.
+    - The `VLLMProcessor` is configured with model parameters (like model name, temperature, max tokens, quantization) which are typically loaded from the application's configuration file (`config.yaml`). These parameters are used to initialize the `vllm.LLM` object and `vllm.SamplingParams`.
+    - The service layer calls a method on the `VLLMProcessor` (e.g., `process` or `generate`) passing the consolidated text. This method internally handles the interaction with the vLLM library.
 
-4.  **Punctuation Model (`VLLMProcessor`)**: The service layer invokes the `VLLMProcessor` (a client for a Large Language Model) to apply punctuation to the consolidated text string. This model returns a fully punctuated version of the text.
+4.  **VLLM Invocation via `VLLMProcessor` and `scripts/post.py`**:
+
+    - The `VLLMProcessor`'s method (e.g., `generate`) is responsible for the actual communication with the vLLM library. It abstracts away the direct API calls to vLLM.
+    - **Internal VLLM Call**: When the `VLLMProcessor`'s method is called, it internally performs the following, often leveraging helper functions from `scripts/post.py`:
+
+      1.  **Prompt Formatting (`apply_chat_template`)**: It constructs the final prompt to be sent to the LLM. This often involves a system prompt (instructing the model to act as a punctuation restorer) and the user prompt (the raw text to be punctuated). The function [`apply_chat_template`](scripts/post.py:91) from `scripts/post.py` is used here if the LLM requires a specific chat format (e.g., for instruction-tuned models).
+
+          - **Logic of `apply_chat_template`**:
+            - It attempts to use the tokenizer's `apply_chat_template` method if available. This is the standard way to format prompts for models that expect a specific chat structure (e.g., `[INST] ... [/INST]` for Llama, or `<|im_start|>user ... <|im_end|>` for ChatML).
+            - If `apply_chat_template` is not available or fails, it falls back to a simpler format:
+              - It iterates through the list of message dictionaries.
+              - For each message, it checks the `role` (`system`, `user`, `assistant`).
+              - It prepends a tag like `[SYSTEM]`, `[USER]`, or `[ASSISTANT]` to the message content.
+              - It joins these formatted messages with newlines.
+              - Finally, it appends `[ASSISTANT]\n` to signal where the model should start generating.
+          - **Example System Prompt**: `"You are a helpful assistant that restores punctuation to text. Output only the punctuated text."`
+          - **Example User Prompt**: `"hello world how are you today"`
+          - **Example Formatted Prompt (fallback)**:
+
+            ```
+            [SYSTEM]
+            You are a helpful assistant that restores punctuation to text. Output only the punctuated text.
+
+            [USER]
+            hello world how are you today
+
+            [ASSISTANT]
+            ```
+
+      2.  **Parameter Setting (`SamplingParams`)**: It sets up `vllm.SamplingParams` for the vLLM generation. This object controls the generation behavior.
+          - **Key Parameters**:
+            - `temperature`: Controls randomness. A value of `0.0` makes the output deterministic.
+            - `max_tokens`: The maximum number of tokens the model is allowed to generate for the output.
+            - `stop`: Optional list of stop token IDs or strings that, when generated, will halt the generation process.
+          - These parameters are typically derived from the application configuration or passed directly.
+      3.  **Text Generation (`llm.generate`)**: The core of the invocation is calling the `generate` method of the `vllm.LLM` instance.
+          - The `generate` method takes a list of prompts (even if it's just one) and the `SamplingParams`.
+          - **Under the hood**: vLLM handles batching (even for a single prompt), tokenization, and efficient inference on the specified hardware (GPU).
+          - It uses a PagedAttention mechanism for optimized memory usage and throughput.
+          - The `vllm.LLM` object is initialized with parameters like the model name/path, tensor parallel size (if using multiple GPUs), GPU memory utilization, quantization settings, etc.
+      4.  **Response Handling**: The `llm.generate` call returns a list of `RequestOutput` objects (one for each prompt).
+          - Each `RequestOutput` contains a list of `SequenceOutput` objects (usually one per request unless `n > 1` in sampling params).
+          - The generated text is extracted from `outputs[0].outputs[0].text` (assuming a single sequence output).
+          - This raw text from the LLM is the punctuated version of the input.
 
     - **Example**: The punctuation model might return `"Hello world, how are you today?"`.
 
 5.  **Alignment and Merging (`post.py`)**: The core logic for integrating the punctuated text back into the original segments resides in the [`join_punctuated_segments`](scripts/post.py:372) function in `scripts/post.py`.
 
-    - This function takes the original ASR segments (with timestamps) and the punctuated text string.
+    - This function takes the original ASR segments (with timestamps) and the punctuated text string received from the `VLLMProcessor`.
     - It uses the `_force_preserve_with_alignment` function to intelligently merge the punctuation from the model's output back into the original text segments. This alignment process ensures that the original word timings are preserved. It handles mismatches between the original and punctuated text by finding the best alignment.
     - **Example**: The function will map `"Hello world, how are you today?"` back to the original segments, resulting in:
       ```json
@@ -55,8 +101,8 @@ The `scripts/post.py` module contains the essential functions for handling the p
 - **Parameters**:
   - `segments` (list[dict]): A list of segment dictionaries from the ASR output. Each dictionary contains `start`, `end`, and `text` keys.
     - **Example**: `[{"start": 0.0, "end": 1.0, "text": "this is a test"}]`
-  - `punctuator`: An object with a `punctuate` method that takes a string and returns a punctuated string.
-    - **Example**: `punctuator.punctuate("this is a test")` might return `"This is a test."`.
+  - `punctuator`: An object with a `punctuate` method that takes a string and returns a punctuated string. In the current VLLM-based setup, this `punctuator` would be the `VLLMProcessor` instance.
+    - **Example**: `punctuator.punctuate("this is a test")` would internally trigger the VLLM workflow described above and might return `"This is a test."`.
 - **Return Value**: A list of punctuated segment dictionaries, with original timestamps preserved.
   - **Example**: `[{"start": 0.0, "end": 1.0, "text": "This is a test."}]`
 

@@ -5,7 +5,7 @@ from litestar.enums import RequestEncodingType
 from litestar.response import Redirect, Response
 import logging
 from omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
-from omoai.api.services import run_full_pipeline
+from omoai.api.services_enhanced import run_full_pipeline as run_full_pipeline_enhanced
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -74,8 +74,9 @@ class MainController(Controller):
             logger.info(f"output_params.summary_bullets_max: {output_params.summary_bullets_max}")
             logger.info(f"output_params.include: {output_params.include}")
         
-        # Run pipeline
-        result = await run_full_pipeline(data, output_params)
+        # Run pipeline using the enhanced, high-performance service
+        params = output_params.dict(exclude_none=True) if output_params else None
+        result = await run_full_pipeline_enhanced(data, params)
 
         # Default: respond with JSON but exclude raw transcript unless explicitly requested
         no_query_params = (
