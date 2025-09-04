@@ -38,14 +38,38 @@ class OutputFormatParams(BaseModel):
     summary_bullets_max: Optional[int] = None
     summary_lang: Optional[str] = None
 
+    # Quality metrics and diff options
+    include_quality_metrics: Optional[bool] = None
+    include_diffs: Optional[bool] = None
+
 
 # Response Models
+class QualityMetrics(BaseModel):
+    """Quality metrics for punctuation alignment."""
+    wer: Optional[float] = None
+    cer: Optional[float] = None
+    per: Optional[float] = None
+    uwer: Optional[float] = None
+    fwer: Optional[float] = None
+    alignment_confidence: Optional[float] = None
+
+
+class HumanReadableDiff(BaseModel):
+    """Human-readable diff for quality assurance."""
+    original_text: Optional[str] = None
+    punctuated_text: Optional[str] = None
+    diff_output: Optional[str] = None
+    alignment_summary: Optional[str] = None
+
+
 class PipelineResponse(BaseModel):
     summary: dict
     segments: list
     # Punctuated transcript text for convenience (used for default text/plain responses)
     # Note: Raw transcript is excluded by default for privacy and data minimization
     transcript_punct: str | None = None
+    quality_metrics: Optional[QualityMetrics] = None
+    diffs: Optional[HumanReadableDiff] = None
 
 
 class PreprocessResponse(BaseModel):
@@ -59,3 +83,5 @@ class ASRResponse(BaseModel):
 class PostprocessResponse(BaseModel):
     summary: dict
     segments: list  # Include segments with punctuated text
+    quality_metrics: Optional[QualityMetrics] = None
+    diffs: Optional[HumanReadableDiff] = None

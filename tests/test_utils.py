@@ -2,7 +2,7 @@ from pathlib import Path
 
 import types
 
-from scripts.post import _parse_time_to_seconds, _dedup_overlap, join_punctuated_segments
+from omoai.pipeline.postprocess import _parse_time_to_seconds, _dedup_overlap, join_punctuated_segments
 
 
 def test_parse_time_to_seconds():

@@ -93,7 +93,15 @@ curl -X POST 'http://localhost:8000/pipeline?include=segments&ts=clock&summary=b
   -F 'audio_file=@data/input/audio.mp3'
 
 # With quality metrics
-curl -X POST 'http://localhost:8000/pipeline?include=quality_metrics' \
+curl -X POST 'http://localhost:8000/pipeline?include_quality_metrics=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+
+# With diffs
+curl -X POST 'http://localhost:8000/pipeline?include_diffs=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+
+# With both quality metrics and diffs
+curl -X POST 'http://localhost:8000/pipeline?include_quality_metrics=true&include_diffs=true' \
   -F 'audio_file=@data/input/audio.mp3'
 ```
 
@@ -118,13 +126,15 @@ curl -X POST 'http://localhost:8000/postprocess' \
 
 ### Query Parameters
 
-| Parameter             | Description                 | Values                                                              | Default            |
-| --------------------- | --------------------------- | ------------------------------------------------------------------- | ------------------ |
-| `include`             | What to include in response | `transcript_raw`, `transcript_punct`, `segments`, `quality_metrics` | `transcript_punct` |
-| `ts`                  | Timestamp format            | `none`, `s`, `ms`, `clock`                                          | `none`             |
-| `summary`             | Summary type                | `none`, `bullets`, `abstract`, `both`                               | `both`             |
-| `summary_bullets_max` | Maximum bullet points       | 1-20                                                                | 7                  |
-| `summary_lang`        | Summary language            | `vi`, `en`                                                          | `vi`               |
+| Parameter                 | Description                  | Values                                           | Default            |
+| ------------------------- | ---------------------------- | ------------------------------------------------ | ------------------ |
+| `include`                 | What to include in response  | `transcript_raw`, `transcript_punct`, `segments` | `transcript_punct` |
+| `include_quality_metrics` | Include quality metrics      | `true`, `false`                                  | `false`            |
+| `include_diffs`           | Include human-readable diffs | `true`, `false`                                  | `false`            |
+| `ts`                      | Timestamp format             | `none`, `s`, `ms`, `clock`                       | `none`             |
+| `summary`                 | Summary type                 | `none`, `bullets`, `abstract`, `both`            | `both`             |
+| `summary_bullets_max`     | Maximum bullet points        | 1-20                                             | 7                  |
+| `summary_lang`            | Summary language             | `vi`, `en`                                       | `vi`               |
 
 ## Enhanced Punctuation Alignment
 
@@ -147,14 +157,29 @@ The system provides multiple quality metrics:
 - **U-WER (Unpunctuated WER)**: WER after removing punctuation
 - **F-WER (Formatted WER)**: WER including punctuation
 
-### Accessing Quality Metrics
+### Accessing Quality Metrics and Diffs
+
+#### Via API
 
 ```bash
-# Via API with quality metrics
-curl -X POST 'http://localhost:8000/pipeline?include=quality_metrics' \
+# With quality metrics only
+curl -X POST 'http://localhost:8000/pipeline?include_quality_metrics=true' \
   -F 'audio_file=@data/input/audio.mp3'
 
-# Response includes quality_metrics object
+# With diffs only
+curl -X POST 'http://localhost:8000/pipeline?include_diffs=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+
+# With both quality metrics and diffs
+curl -X POST 'http://localhost:8000/pipeline?include_quality_metrics=true&include_diffs=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+```
+
+#### API Response Examples
+
+**Quality Metrics Response:**
+
+```json
 {
   "quality_metrics": {
     "wer": 0.05,
@@ -166,6 +191,37 @@ curl -X POST 'http://localhost:8000/pipeline?include=quality_metrics' \
   }
 }
 ```
+
+**Diffs Response:**
+
+```json
+{
+  "diffs": {
+    "original_text": "hello world how are you today",
+    "punctuated_text": "Hello, world! How are you today?",
+    "diff_output": "  Original: hello world how are you today\n  Punctuated: Hello, world! How are you today?\n  Changes:   ^     ^    ^              ^",
+    "alignment_summary": "Successfully aligned 6 words with 2 punctuation additions"
+  }
+}
+```
+
+#### Via Interactive CLI
+
+```bash
+# Start interactive mode
+uv run interactive
+
+# Select "View Quality Metrics & Diffs"
+# Enter path to your final.json file
+# View detailed analysis and optionally save to file
+```
+
+The interactive CLI provides:
+
+- 📊 Quality metrics with interpretation (excellent/good/acceptable/poor)
+- 📝 Human-readable diffs showing before/after text
+- 💾 Option to save analysis report to text file
+- 📁 File information and statistics
 
 ### Configuration for Enhanced Punctuation
 
@@ -181,16 +237,55 @@ punctuation:
   enable_paragraphs: true
   join_separator: " "
   paragraph_gap_seconds: 3.0
+  # Fallback behavior for empty segments
+  keep_nonempty_segments: false
+  # Prompt-level mitigation for deletions
+  prevent_deletions_prompt: true
   system_prompt: |
-    You are a helpful assistant that restores punctuation to text. 
+    You are a helpful assistant that restores punctuation to text.
     Output only the punctuated text.
+    Do not delete any words from the original text.
   # Enhanced alignment settings
   alignment:
     use_levenshtein: true
     enable_character_level: true
     compute_quality_metrics: true
     generate_diffs: true
+
+#### New Configuration Options
+
+1. **keep_nonempty_segments** (boolean, default: false)
+
+   When enabled, prevents empty `text_punct` fields by applying basic punctuation fallback:
+   - Capitalizes the first letter of the segment
+   - Adds a period at the end
+   - Only applies to segments that would otherwise be empty after alignment
+
+   This is useful when you want to ensure every segment has some punctuation, even if the LLM alignment process fails to map words properly.
+
+2. The default punctuation system prompt in config.yaml already contains an anti-deletion policy; the separate `prevent_deletions_prompt` option has been removed.
+
+#### Debugging Empty Segments
+
+When you encounter empty `text_punct` fields, the system now provides debug logging to help diagnose the issue:
+
 ```
+
+[punct-align] empty_map seg=3 cnt=0 keep_nonempty=false
+
+````
+
+This log indicates:
+- Segment 3 mapped to 0 words (empty)
+- `keep_nonempty_segments` was disabled, so no fallback was applied
+
+To enable debug logging:
+```bash
+export OMOAI_LOG_LEVEL=DEBUG
+uv run api
+````
+
+````
 
 ## Configuration
 
@@ -230,12 +325,17 @@ punctuation:
   preserve_original_words: true
   adopt_case: true
   enable_paragraphs: true
+  # Fallback behavior for empty segments
+  keep_nonempty_segments: false
+  # Prompt-level mitigation for deletions
+  prevent_deletions_prompt: true
   alignment:
     use_levenshtein: true
     enable_character_level: true
     compute_quality_metrics: true
   system_prompt: |
     You are a helpful assistant that restores punctuation to text.
+    Do not delete any words from the original text.
 
 # Summarization configuration
 summarization:
@@ -250,7 +350,7 @@ api:
   port: 8000
   max_body_size_mb: 100
   request_timeout_seconds: 300
-```
+````
 
 ## Output Formats
 
@@ -382,9 +482,23 @@ punctuation:
    - Check API response includes `quality_metrics` object
 
 3. **Poor alignment quality**:
+
    - Increase `max_model_len` for better context
+
+4. **Empty text_punct segments**:
+
+   - Check debug logs for `[punct-align] empty_map` messages
+   - Enable `keep_nonempty_segments: true` for fallback behavior
+   - Enable `prevent_deletions_prompt: true` to reduce word deletions
+   - Review system prompt to ensure it's not encouraging deletions
    - Adjust system prompt for clearer instructions
    - Consider using a more capable LLM model
+
+5. **Empty text_punct segments**:
+   - Check debug logs for `[punct-align] empty_map` messages
+   - Enable `keep_nonempty_segments: true` for fallback behavior
+   - Enable `prevent_deletions_prompt: true` to reduce word deletions
+   - Review system prompt to ensure it's not encouraging deletions
 
 ### Debug Mode
 

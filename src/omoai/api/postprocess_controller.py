@@ -37,6 +37,21 @@ class PostprocessModel:
             cfg = {}
 
         # Store configuration
+        # Prefer punctuation settings from top-level 'punctuation' section; fall back to 'postprocess' if missing
+        punct_cfg = cfg.get("punctuation", {}) or {}
+        base_punct_prompt = punct_cfg.get(
+            "system_prompt",
+            cfg.get("postprocess", {}).get(
+                "punctuation_system_prompt",
+                "Bạn là một trợ lý AI thông minh. Nhiệm vụ của bạn là thêm dấu câu phù hợp vào văn bản tiếng Việt. "
+                "Hãy thêm dấu chấm, dấu phẩy, dấu chấm hỏi, dấu chấm than, dấu hai chấm, dấu chấm phẩy, "
+                "và các dấu ngoặc đơn hoặc kép nếu cần thiết. Đảm bảo văn bản trở nên dễ đọc và có ý nghĩa."
+            ),
+        )
+        # Use the configured system prompt as-is.
+        # The default prompt in config.yaml contains the anti-deletion policy,
+        # so do not append or manage a separate prevent_deletions_prompt flag here.
+
         self.config = {
             "model_id": cfg.get("postprocess", {}).get("model_id", "microsoft/DialoGPT-medium"),
             "quantization": cfg.get("postprocess", {}).get("quantization", None),
@@ -46,10 +61,8 @@ class PostprocessModel:
             "max_num_batched_tokens": cfg.get("postprocess", {}).get("max_num_batched_tokens", None),
             "temperature": cfg.get("postprocess", {}).get("temperature", 0.0),
             "trust_remote_code": cfg.get("postprocess", {}).get("trust_remote_code", False),
-            "punctuation_system_prompt": cfg.get("postprocess", {}).get("punctuation_system_prompt",
-                "Bạn là một trợ lý AI thông minh. Nhiệm vụ của bạn là thêm dấu câu phù hợp vào văn bản tiếng Việt. "
-                "Hãy thêm dấu chấm, dấu phẩy, dấu chấm hỏi, dấu chấm than, dấu hai chấm, dấu chấm phẩy, "
-                "và các dấu ngoặc đơn hoặc kép nếu cần thiết. Đảm bảo văn bản trở nên dễ đọc và có ý nghĩa."),
+            "punctuation_system_prompt": base_punct_prompt,
+            "punctuation_keep_nonempty_segments": bool(punct_cfg.get("keep_nonempty_segments", False)),
             "summary_system_prompt": cfg.get("postprocess", {}).get("summary_system_prompt",
                 "Bạn là một trợ lý AI thông minh. Nhiệm vụ của bạn là tóm tắt văn bản tiếng Việt một cách ngắn gọn và chính xác. "
                 "Hãy tạo ra một bản tóm tắt có cấu trúc rõ ràng với các điểm chính và một đoạn tóm tắt ngắn gọn."),
@@ -88,96 +101,53 @@ class PostprocessModel:
                 "summary": {"bullets": [], "abstract": ""}
             }
 
-        # Import functions from scripts/post.py
-        sys.path.insert(0, str(Path("/home/cetech/omoai/scripts")))
-        try:
-            from post import (  # type: ignore
-                punctuate_text_with_splitting,
-                summarize_long_text_map_reduce,
-                join_punctuated_segments,
-                _segmentwise_punctuate_segments,
-                _safe_distribute_punct_to_segments,
-            )
-        except ImportError:
-            # Fallback implementation if import fails
-            return self._fallback_process(transcript_raw, segments)
+        # Import functions from scripts/post.py with a project-root sys.path for static analyzers and runtime
+        sys.path.insert(0, str(Path(__file__).parents[3]))
+        from scripts.post import (
+            punctuate_text_with_splitting,
+            summarize_long_text_map_reduce,
+            join_punctuated_segments,
+            _segmentwise_punctuate_segments,
+            _safe_distribute_punct_to_segments,
+        )
 
-        # Add punctuation to transcript
-        try:
-            # First, punctuate individual segments
-            punctuated_segments = _segmentwise_punctuate_segments(
-                llm=self.llm,
-                system_prompt=self.config["punctuation_system_prompt"],
-                max_model_len=self.config["max_model_len"],
-                segments=segments,
-                temperature=self.config["temperature"],
-            )
+        # Add punctuation to transcript using enhanced alignment
+        # First, punctuate individual segments (segment-wise for throughput)
+        punctuated_segments = _segmentwise_punctuate_segments(
+            llm=self.llm,
+            system_prompt=self.config["punctuation_system_prompt"],
+            max_model_len=self.config["max_model_len"],
+            segments=segments,
+            temperature=self.config["temperature"],
+        )
 
-            # Join punctuated segments into coherent transcript
-            transcript_punct = join_punctuated_segments(punctuated_segments)
+        # Join per-segment outputs into a single punctuated string
+        punctuated_text = join_punctuated_segments(punctuated_segments)
 
-        except Exception as e:
-            print(f"Punctuation failed, using fallback: {e}")
-            transcript_punct = self._add_basic_punctuation(transcript_raw)
+        # Distribute the punctuated text back to the original segments with alignment
+        final_segments = _safe_distribute_punct_to_segments(
+            punctuated_text,
+            segments,
+            keep_nonempty_segments=self.config.get("punctuation_keep_nonempty_segments", False),
+        )
+
+        # Produce final coherent transcript from aligned segments
+        transcript_punct = join_punctuated_segments(final_segments)
 
         # Generate summary
-        try:
-            summary = summarize_long_text_map_reduce(
-                llm=self.llm,
-                text=transcript_punct or transcript_raw,
-                system_prompt=self.config["summary_system_prompt"],
-                temperature=self.config["temperature"],
-                max_model_len=self.config["max_model_len"],
-            )
-        except Exception as e:
-            print(f"Summarization failed, using fallback: {e}")
-            summary = self._fallback_summarize(transcript_punct or transcript_raw)
+        summary = summarize_long_text_map_reduce(
+            llm=self.llm,
+            text=transcript_punct or transcript_raw,
+            system_prompt=self.config["summary_system_prompt"],
+            temperature=self.config["temperature"],
+            max_model_len=self.config["max_model_len"],
+        )
 
         return {
             "transcript_punct": transcript_punct,
             "summary": summary
         }
 
-    def _fallback_process(self, transcript_raw: str, segments: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Fallback processing when script import fails."""
-        transcript_punct = self._add_basic_punctuation(transcript_raw)
-        summary = self._fallback_summarize(transcript_punct)
-        return {
-            "transcript_punct": transcript_punct,
-            "summary": summary
-        }
-
-    def _add_basic_punctuation(self, text: str) -> str:
-        """Add basic punctuation as fallback."""
-        if not text:
-            return ""
-
-        # Capitalize first letter
-        text = text[0].upper() + text[1:] if len(text) > 1 else text.upper()
-
-        # Add period at end if no punctuation
-        if not text[-1] in '.!?':
-            text += '.'
-
-        return text
-
-    def _fallback_summarize(self, text: str) -> Dict[str, Any]:
-        """Simple fallback summarization."""
-        if not text:
-            return {"bullets": [], "abstract": ""}
-
-        # Simple word-based truncation for abstract
-        words = text.split()
-        abstract = " ".join(words[:50]) + "..." if len(words) > 50 else text
-
-        # Create simple bullet points
-        sentences = text.split('.')
-        bullets = [s.strip() + '.' for s in sentences[:3] if s.strip()]
-
-        return {
-            "bullets": bullets,
-            "abstract": abstract
-        }
 
 
 from omoai.api.services_enhanced import postprocess_service
@@ -201,6 +171,23 @@ class PostprocessController(Controller):
         - summary: Summary type (bullets, abstract, both, none)
         - summary_bullets_max: Maximum number of bullet points
         - summary_lang: Summary language
+        - include_quality_metrics: Include quality metrics in response
+        - include_diffs: Include human-readable diffs in response
         """
-        # For now, just pass through - can be enhanced later to support output formatting
-        return postprocess_service(data)
+        # Process with optional quality metrics and diffs
+        # Convert OutputFormatParams to dict if provided
+        output_params_dict = None
+        if output_params:
+            output_params_dict = {
+                "include_quality_metrics": output_params.include_quality_metrics,
+                "include_diffs": output_params.include_diffs,
+                "include": output_params.include,
+                "ts": output_params.ts,
+                "summary": output_params.summary,
+                "summary_bullets_max": output_params.summary_bullets_max,
+                "summary_lang": output_params.summary_lang
+            }
+        
+        result = await postprocess_service(data, output_params_dict)
+        
+        return result

@@ -13,8 +13,12 @@ from typing import Any, Dict, List, Optional, Union, Tuple
 import torch
 import numpy as np
 from pydub import AudioSegment  # type: ignore
+import logging
 
 from ..config import OmoAIConfig, ASRConfig
+
+# Module logger
+logger = logging.getLogger("omoai.pipeline.asr")
 
 
 @dataclass
@@ -124,17 +128,31 @@ class ChunkFormerASR:
             ASRResult with segments and transcript
         """
         self.initialize()
-        
+
+        # Diagnostic: log tensor shape and incoming sample_rate
+        try:
+            tensor_shape = tuple(audio_tensor.shape) if hasattr(audio_tensor, "shape") else str(type(audio_tensor))
+        except Exception:
+            tensor_shape = "unknown"
+        logger.debug(
+            "ChunkFormerASR.process_tensor entry | audio_tensor_shape=%s sample_rate=%s chunk_params=(chunk_size=%s,left_ctx=%s,right_ctx=%s)",
+            tensor_shape,
+            sample_rate,
+            chunk_size,
+            left_context_size,
+            right_context_size,
+        )
+
         # Import dependencies
         import torchaudio.compliance.kaldi as kaldi  # type: ignore
         from omoai.chunkformer.model.utils.ctc_utils import get_output_with_timestamps  # type: ignore
-        
+
         # Validate input
         if audio_tensor.dim() == 1:
             audio_tensor = audio_tensor.unsqueeze(0)  # Add batch dimension
         elif audio_tensor.dim() != 2 or audio_tensor.size(0) != 1:
             raise ValueError(f"Expected audio tensor of shape (1, samples), got {audio_tensor.shape}")
-        
+
         audio_duration_s = audio_tensor.size(1) / sample_rate
         
         # Setup autocast
@@ -352,7 +370,21 @@ def run_asr_inference(
         "total_batch_duration_s": getattr(asr_config, "total_batch_duration_s", 1800),
         "autocast_dtype": getattr(asr_config, "autocast_dtype", "fp16"),
     }
+
+    # Diagnostic: check if caller passed sample_rate via kwargs which would be merged into asr_params
+    sample_rate_override = kwargs.get("sample_rate", None)
+    logger.debug(
+        "Preparing ASR params | initial_keys=%s kwargs_keys=%s sample_rate_override=%s",
+        list(asr_params.keys()),
+        list(kwargs.keys()),
+        sample_rate_override,
+    )
+
+    # Merge overrides, then ensure sample_rate is not present in asr_params to avoid duplicate keyword error
     asr_params.update(kwargs)  # Allow parameter overrides
+    removed_sample_rate = asr_params.pop("sample_rate", None)
+    if removed_sample_rate is not None:
+        logger.debug("Removed duplicate 'sample_rate' from asr_params (value=%s) to avoid TypeError", removed_sample_rate)
     
     # Initialize ASR engine
     asr_device = device or getattr(asr_config, "device", "auto")

@@ -169,6 +169,6 @@ The tests cover a wide range of scenarios, including:
 - **Simple Punctuation**: Verifies that basic punctuation (e.g., periods, commas) is correctly preserved and aligned.
 - **Insertions**: Ensures that when words are inserted from the LLM's output, their associated punctuation is also correctly inserted.
 - **Deletions**: Confirms that when words are deleted from the original text, the punctuation from the LLM's output is still applied.
-- **Replacements**: Tests that when words are replaced, the punctuation is correctly mapped to the new words.
+- **Replacements**: Tests that when words are replaced[text](development), the punctuation is correctly mapped to the new words.
 
 This comprehensive testing approach helps to prevent regressions and ensures the long-term stability of the punctuation restoration process.

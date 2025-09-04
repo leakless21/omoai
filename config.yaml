@@ -36,17 +36,18 @@ punctuation:
   auto_switch_ratio: 0.98
   auto_margin_tokens: 128
   adopt_case: true
+  # New behavior controls
+  keep_nonempty_segments: true # When true, avoid empty text_punct by minimally punctuating original segment text
   enable_paragraphs: true
   join_separator: " "
   paragraph_gap_seconds: 3.0
   system_prompt: |
     <instruction>
-    You are a Vietnamese text punctuation engine. Your task is to add proper punctuation and capitalization to the input text.
-    - Preserve the original word order and meaning.
-    - Add appropriate punctuation marks (., !, ?, :, ;, etc.).
-    - Capitalize the first letter of sentences and proper nouns.
-    - Maintain the original language style and tone.
-    - Ensure the output is a single, coherent block of text.
+    You are an expert in Vietnamese grammar and punctuation. Your task is to meticulously correct the input text by adding proper punctuation and capitalization.
+    - Add all necessary punctuation, including commas, periods, question marks, etc.
+    - Correct capitalization for the start of sentences and proper nouns (e.g., 'hà nội' -> 'Hà Nội').
+    - Ensure the original wording, word order, and meaning are perfectly preserved.
+    - Your output must be a single, coherent block of punctuated text and nothing else.
     </instruction>
     <example>
     <input>xin chào thế giới đây là một ví dụ về khôi phục dấu câu</input>
@@ -60,6 +61,13 @@ punctuation:
     <input>tôi đang xem một buổi lai trim trên phây búc về trí tuệ nhân tạo ai</input>
     <output>Tôi đang xem một buổi livestream trên Facebook về trí tuệ nhân tạo AI.</output>
     </example>
+    <example>
+    <input>hôm qua tại hà nội thủ tướng đã nói chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế</input>
+    <output>Hôm qua tại Hà Nội, Thủ tướng đã nói: "Chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế."</output>
+    </example>
+    <policy>
+    ABSOLUTE RULE: Do not delete, replace, or rephrase any words from the original input. Your only task is to add punctuation and capitalization. The original words must be kept exactly as they are.
+    </policy>
   sampling:
     temperature: 0.0
 
@@ -77,12 +85,12 @@ summarization:
   auto_margin_tokens: 256
   system_prompt: |
     <instruction>
-    You are a Vietnamese text analysis engine. Your task is to generate a summary of the input text and format it as a single, valid JSON object.
+    You are a highly skilled Vietnamese text analysis engine. Your task is to generate a concise summary of the input text and format it as a single, valid JSON object.
     - The JSON object must contain exactly two keys: "bullets" and "abstract".
-    - The "bullets" value must be an array of 3 to 7 concise Vietnamese strings (max 20 words each).
+    - The "bullets" value must be an array of 3 to 7 short Vietnamese sentences (max 20 words each), highlighting the main points.
     - The "abstract" value must be a string containing a 2-3 sentence summary in Vietnamese.
-    - Do not output any text before or after the JSON object.
     - The summary must be based exclusively on the provided text.
+    - Your output MUST be only the JSON object. Do not include any other text, explanations, or markdown formatting before or after the JSON.
     </instruction>
     <example>
     <input>Hệ thống nhận dạng giọng nói đã trở thành một công nghệ phổ biến. Nó được sử dụng trong nhiều ứng dụng từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả.</input>
@@ -97,44 +105,72 @@ summarization:
     }
     </output>
     </example>
+    <example>
+    <input>Trí tuệ nhân tạo đang thay đổi thế giới việc làm. Nhiều công việc lặp đi lặp lại có thể được tự động hóa, giúp con người tập trung vào các nhiệm vụ sáng tạo và chiến lược hơn. Tuy nhiên, điều này cũng đặt ra thách thức về đào tạo lại lực lượng lao động để họ có thể thích ứng với các vai trò mới. Các chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề này.</input>
+    <output>
+    {
+      "bullets": [
+        "Trí tuệ nhân tạo đang làm thay đổi thị trường lao động.",
+        "Các công việc lặp đi lặp lại đang được tự động hóa.",
+        "Con người có thể tập trung vào công việc sáng tạo và chiến lược.",
+        "Thách thức đặt ra là phải đào tạo lại lực lượng lao động.",
+        "Chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề."
+      ],
+      "abstract": "Trí tuệ nhân tạo đang thay đổi thế giới việc làm bằng cách tự động hóa các công việc lặp đi lặp lại, cho phép con người tập trung vào các nhiệm vụ sáng tạo hơn. Tuy nhiên, điều này tạo ra nhu cầu cấp thiết về việc đào tạo lại lực lượng lao động, đòi hỏi sự hợp tác giữa chính phủ và doanh nghiệp."
+    }
+    </output>
+    </example>
   sampling:
     temperature: 0.7
 
-# NEW: Enhanced Output Configuration
-# Legacy fields (maintained for backward compatibility)
-write_separate_files: true
-transcript_file: "transcript.txt" # Legacy - maps to transcript.file_punct
-summary_file: "summary.txt" # Legacy - maps to summary.file
-wrap_width: 0 # Legacy - maps to transcript.wrap_width
+output:
+  # Legacy fields (maintained for backward compatibility)
+  write_separate_files: true
+  transcript_file: "transcript.txt" # Legacy - maps to transcript.file_punct
+  summary_file: "summary.txt" # Legacy - maps to summary.file
+  wrap_width: 0 # Legacy - maps to transcript.wrap_width
 
-# New structured configuration
-formats: ["json", "text", "srt", "vtt", "md"] # All available formats
+  # New structured configuration
+  formats: ["json", "text", "srt", "vtt", "md"] # All available formats
 
-# Transcript output configuration
-transcript:
-  include_raw: true # Include raw transcript in outputs
-  include_punct: true # Include punctuated transcript in outputs
-  include_segments: true # Include timestamped segments in outputs
-  timestamps: "clock" # Format: "none", "s", "ms", "clock"
-  wrap_width: 100 # Text wrapping width (0 = no wrapping)
+  # Transcript output configuration
+  transcript:
+    include_raw: true # Include raw transcript in outputs
+    include_punct: true # Include punctuated transcript in outputs
+    include_segments: true # Include timestamped segments in outputs
+    timestamps: "clock" # Format: "none", "s", "ms", "clock"
+    wrap_width: 100 # Text wrapping width (0 = no wrapping)
 
-  # Filename configuration
-  file_raw: "transcript.raw.txt"
-  file_punct: "transcript.punct.txt"
-  file_srt: "transcript.srt"
-  file_vtt: "transcript.vtt"
-  file_segments: "segments.json"
+    # Filename configuration
+    file_raw: "transcript.raw.txt"
+    file_punct: "transcript.punct.txt"
+    file_srt: "transcript.srt"
+    file_vtt: "transcript.vtt"
+    file_segments: "segments.json"
 
-# Summary output configuration
-summary:
-  mode: "both" # "bullets", "abstract", "both", "none"
-  bullets_max: 7 # Maximum number of bullet points
-  abstract_max_chars: 1000 # Maximum abstract length
-  language: "vi" # Summary language
-  file: "summary.md" # Summary output filename
+  # Summary output configuration
+  summary:
+    mode: "both" # "bullets", "abstract", "both", "none"
+    bullets_max: 7 # Maximum number of bullet points
+    abstract_max_chars: 1000 # Maximum abstract length
+    language: "vi" # Summary language
+    file: "summary.md" # Summary output filename
 
-# Final output filename
-final_json: "final.json"
+  # Final output filename
+  final_json: "final.json"
+
+  # API-related output controls (new)
+  # save_on_api: if true, the pipeline API will also persist final JSON to disk
+  # default is false to avoid implicit persistence from API calls
+  save_on_api: true
+
+  # when save_on_api is true, which files to write (final_json, segments, transcripts)
+  save_formats_on_api:
+    - final_json
+    - segments
+
+  # directory to save API outputs (overrides paths.out_dir when set)
+  api_output_dir: "./data/output/api"
 
 api:
   host: "0.0.0.0"

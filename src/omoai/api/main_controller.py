@@ -4,8 +4,11 @@ from litestar.params import Body
 from litestar.enums import RequestEncodingType
 from litestar.response import Redirect, Response
 import logging
+from pathlib import Path
 from omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
 from omoai.api.services_enhanced import run_full_pipeline as run_full_pipeline_enhanced
+from omoai.config import get_config
+from omoai.output.writer import write_outputs
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -77,6 +80,29 @@ class MainController(Controller):
         # Run pipeline using the enhanced, high-performance service
         params = output_params.dict(exclude_none=True) if output_params else None
         result = await run_full_pipeline_enhanced(data, params)
+
+        # Persist outputs to disk for API requests when configured in config.output.save_on_api
+        try:
+            cfg = get_config()
+            if getattr(cfg.output, "save_on_api", False):
+                api_out = getattr(cfg.output, "api_output_dir", None)
+                output_dir = Path(api_out) if api_out else cfg.paths.out_dir
+                try:
+                    written = write_outputs(
+                        output_dir,
+                        result.segments,
+                        getattr(result, "transcript_raw", ""),
+                        getattr(result, "transcript_punct", ""),
+                        result.summary or {},
+                        getattr(result, "metadata", {}),
+                        cfg.output,
+                    )
+                    logger.info(f"Saved API outputs to {output_dir}: {written}")
+                except Exception as e:
+                    logger.exception(f"Failed to write API outputs to {output_dir}: {e}")
+        except Exception:
+            # Best-effort only — do not fail the API because persistence failed
+            logger.debug("Skipping API output persistence due to configuration/read error", exc_info=True)
 
         # Default: respond with JSON but exclude raw transcript unless explicitly requested
         no_query_params = (

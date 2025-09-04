@@ -6,7 +6,7 @@ and eliminate subprocess calls for dramatic performance improvements.
 """
 import asyncio
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 
 from ..config import get_config
@@ -122,12 +122,13 @@ async def asr_service_v2(data: ASRRequest) -> ASRResponse:
         raise AudioProcessingException(f"Enhanced ASR processing failed: {str(e)}")
 
 
-async def postprocess_service_v2(data: PostprocessRequest) -> PostprocessResponse:
+async def postprocess_service_v2(data: PostprocessRequest, output_params: Optional[dict] = None) -> PostprocessResponse:
     """
     Enhanced postprocessing service using cached models.
     
     Args:
         data: PostprocessRequest containing ASR output
+        output_params: Optional dict with output formatting parameters
         
     Returns:
         PostprocessResponse with punctuation and summary
@@ -136,6 +137,10 @@ async def postprocess_service_v2(data: PostprocessRequest) -> PostprocessRespons
         AudioProcessingException: If postprocessing fails
     """
     try:
+        # Extract output parameters
+        include_quality_metrics = output_params.get("include_quality_metrics", False) if output_params else False
+        include_diffs = output_params.get("include_diffs", False) if output_params else False
+        
         # Convert API format to ASRResult
         segments = [
             ASRSegment(
@@ -155,13 +160,19 @@ async def postprocess_service_v2(data: PostprocessRequest) -> PostprocessRespons
             metadata=data.asr_output.get("metadata", {})
         )
         
-        # Run postprocessing using cached models
+        # Run postprocessing using cached models with quality metrics and diffs flags
         loop = asyncio.get_event_loop()
+        # Call postprocess_transcript in executor, ensuring positional args align with signature:
+        # postprocess_transcript(asr_result, config, punctuation_config, summarization_config, include_quality_metrics, include_diffs)
         result = await loop.run_in_executor(
             None,
             postprocess_transcript,
             asr_result,
-            None  # Use default config
+            None,  # Use default config
+            None,  # punctuation_config
+            None,  # summarization_config
+            include_quality_metrics,
+            include_diffs
         )
         
         # Convert to API response format
@@ -170,8 +181,8 @@ async def postprocess_service_v2(data: PostprocessRequest) -> PostprocessRespons
                 "start": seg.start,
                 "end": seg.end,
                 "text_raw": (
-                    asr_result.segments[i].text 
-                    if i < len(asr_result.segments) 
+                    asr_result.segments[i].text
+                    if i < len(asr_result.segments)
                     else ""
                 ),
                 "text_punct": seg.text,
@@ -185,13 +196,32 @@ async def postprocess_service_v2(data: PostprocessRequest) -> PostprocessRespons
             "abstract": result.summary.abstract
         }
         
-        return PostprocessResponse(summary=summary, segments=segments)
+        # Create response with optional quality metrics and diffs
+        response = PostprocessResponse(summary=summary, segments=segments)
+        
+        # Extract quality metrics and diffs from PostprocessResult.metadata (preferred)
+        if include_quality_metrics:
+            qm = None
+            if hasattr(result, "metadata") and isinstance(result.metadata, dict):
+                qm = result.metadata.get("quality_metrics")
+            # Attach if available and non-empty
+            if qm:
+                response.quality_metrics = qm
+
+        if include_diffs:
+            dd = None
+            if hasattr(result, "metadata") and isinstance(result.metadata, dict):
+                dd = result.metadata.get("diffs")
+            if dd:
+                response.diffs = dd
+        
+        return response
         
     except Exception as e:
         raise AudioProcessingException(f"Enhanced postprocessing failed: {str(e)}")
 
 
-async def run_full_pipeline_v2(data: PipelineRequest) -> PipelineResponse:
+async def run_full_pipeline_v2(data: PipelineRequest, output_params: Optional[dict] = None) -> PipelineResponse:
     """
     Enhanced full pipeline using in-memory processing and cached models.
     
@@ -228,7 +258,8 @@ async def run_full_pipeline_v2(data: PipelineRequest) -> PipelineResponse:
             save_intermediates,
             output_dir,
             True,     # Validate input
-            None      # No max duration limit
+            None,     # No max duration limit
+            output_params  # Forward any output flags (include_quality_metrics, include_diffs, etc.)
         )
         
         # Convert to API response format
@@ -259,7 +290,32 @@ async def run_full_pipeline_v2(data: PipelineRequest) -> PipelineResponse:
             }
         }
         
-        return PipelineResponse(summary=summary, segments=segments)
+        # Build response and include optional quality metrics / diffs when requested
+        response = PipelineResponse(
+            summary=summary,
+            segments=segments,
+            transcript_punct=result.transcript_punctuated
+        )
+        
+        # Attach detailed quality metrics if available
+        include_quality_metrics = output_params.get("include_quality_metrics", False) if output_params else False
+        include_diffs = output_params.get("include_diffs", False) if output_params else False
+        
+        # Prefer detailed metrics/diffs from postprocess_result.metadata if present
+        post_meta = getattr(result.postprocess_result, "metadata", {}) or {}
+        top_meta = getattr(result, "metadata", {}) or {}
+        
+        if include_quality_metrics:
+            qm = post_meta.get("quality_metrics") or top_meta.get("quality_metrics")
+            if qm:
+                response.quality_metrics = qm
+        
+        if include_diffs:
+            diffs = post_meta.get("diffs") or top_meta.get("diffs")
+            if diffs:
+                response.diffs = diffs
+        
+        return response
         
     except Exception as e:
         raise AudioProcessingException(f"Enhanced pipeline processing failed: {str(e)}")

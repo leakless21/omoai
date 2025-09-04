@@ -13,9 +13,8 @@ wheels/
 .pytest_cache/
 
 # Data and models
-data/input/
-data/output/
 chunkformer-large-vie/
+data/*
 models/
 *.log
 *.dryrun.json

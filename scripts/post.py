@@ -2,7 +2,7 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable
 import gc
 import re
 import textwrap
@@ -47,6 +47,19 @@ def save_json(path: Path, data: Dict[str, Any]) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+
+
+def _add_basic_punctuation(text: str) -> str:
+    """Add minimal punctuation: capitalize first letter, add period at end if missing."""
+    if not text:
+        return text
+    # Capitalize first letter
+    if text[0].islower():
+        text = text[0].upper() + text[1:]
+    # Add period if no ending punctuation
+    if not text[-1] in ".!?…":
+        text = text + "."
+    return text
 def load_asr_top_level(path: Path) -> Dict[str, Any]:
     """Read only top-level keys of an ASR JSON using ijson if available.
 
@@ -384,12 +397,12 @@ def join_punctuated_segments(
     - Insert paragraph breaks if there is a long time gap between segments
     - Deduplicate small overlaps at joins
     """
-    extractor = None
+    extractor_fn: Optional[Callable[[str], Tuple[List[str], str]]] = None
     if use_vi_sentence_segmenter:
         with suppress(Exception):
             from underthesea import sent_tokenize  # type: ignore
 
-            def extractor(text: str) -> Tuple[List[str], str]:
+            def _vi_extractor(text: str) -> Tuple[List[str], str]:
                 sents = [s.strip() for s in sent_tokenize(text) if s.strip()]
                 if not sents:
                     return [], text
@@ -397,11 +410,12 @@ def join_punctuated_segments(
                 if ends_with_term:
                     return sents, ""
                 return sents[:-1], sents[-1] if sents else ""
-    if extractor is None:
+            extractor_fn = _vi_extractor
+    if extractor_fn is None:
         # Use a forward-search matcher to avoid variable-length lookbehind
         sentence_end_pattern = re.compile(r"[\.\!\?…][”\")»\]]*\s+")
 
-        def extractor(text: str) -> Tuple[List[str], str]:
+        def _default_extractor(text: str) -> Tuple[List[str], str]:
             sentences: List[str] = []
             last_cut = 0
             for m in sentence_end_pattern.finditer(text):
@@ -412,6 +426,7 @@ def join_punctuated_segments(
                 last_cut = end_idx
             tail = text[last_cut:]
             return sentences, tail
+        extractor_fn = _default_extractor
 
     out_sentences: List[str] = []
     buffer = ""
@@ -429,7 +444,8 @@ def join_punctuated_segments(
             gap = (start_sec - last_end) if start_sec is not None else 0.0
             if gap >= paragraph_gap_seconds and buffer.strip():
                 # Flush buffer fully as a paragraph
-                sentences_pg, tail_pg = extractor(buffer)
+                assert extractor_fn is not None
+                sentences_pg, tail_pg = extractor_fn(buffer)
                 out_sentences.extend(s for s in sentences_pg if s.strip())
                 if tail_pg.strip():
                     out_sentences.append(tail_pg.strip())
@@ -445,7 +461,8 @@ def join_punctuated_segments(
         last_end = end_sec2 if end_sec2 is not None else last_end
 
         # Emit complete sentences from buffer; keep last tail incomplete
-        sentences, tail = extractor(buffer)
+        assert extractor_fn is not None
+        sentences, tail = extractor_fn(buffer)
         if sentences:
             out_sentences.extend(s for s in sentences if s.strip())
             buffer = tail
@@ -605,7 +622,9 @@ def _force_preserve_with_alignment(original_text: str, llm_text: str, adopt_case
 
 
 def _distribute_punct_to_segments(
-    punctuated_text: str, segments: List[Dict[str, Any]]
+    punctuated_text: str,
+    segments: List[Dict[str, Any]],
+    keep_nonempty_segments: bool = False,
 ) -> List[Dict[str, Any]]:
     """Distribute a single punctuated text back to segments using fuzzy word alignment.
 
@@ -614,31 +633,45 @@ def _distribute_punct_to_segments(
     if not segments:
         return []
     if not punctuated_text.strip():
-        return [{"text_punct": "", **s} for s in segments]
-    
+        # Log and optionally fallback
+        print("[punct-align] punctuated_text empty; mapping empty outputs to segments")
+        out_segments: List[Dict[str, Any]] = []
+        for s in segments:
+            raw = (s.get("text_raw") or s.get("text") or "").strip()
+            if keep_nonempty_segments and raw:
+                piece = _add_basic_punctuation(raw)
+                out_segments.append({**s, "text_punct": piece})
+            else:
+                out_segments.append({**s, "text_punct": ""})
+        return out_segments
+
     # Get original segments with text
-    text_segments = [(i, s) for i, s in enumerate(segments) if (s.get("text_raw") or "").strip()]
+    text_segments = [(i, s) for i, s in enumerate(segments) if (s.get("text_raw") or s.get("text") or "").strip()]
     if not text_segments:
         return [dict(s) for s in segments]
-    
+
     # Create concatenated original text
-    original_concat = " ".join(s.get("text_raw", "").strip() for _, s in text_segments)
+    original_concat = " ".join((s.get("text_raw") or s.get("text") or "").strip() for _, s in text_segments)
     original_words = _split_words(original_concat)
     punct_words = _split_words(punctuated_text)
-    
+
     # If word counts match exactly, use precise distribution
     if len(original_words) == len(punct_words):
-        return _distribute_exact_match(punctuated_text, segments)
-    
+        return _distribute_exact_match(punctuated_text, segments, keep_nonempty_segments=keep_nonempty_segments)
+
     # Handle word count mismatch with fuzzy alignment
-    return _distribute_fuzzy_match(punctuated_text, segments, original_concat)
+    return _distribute_fuzzy_match(punctuated_text, segments, original_concat, keep_nonempty_segments=keep_nonempty_segments)
 
 
-def _distribute_exact_match(punctuated_text: str, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _distribute_exact_match(
+    punctuated_text: str,
+    segments: List[Dict[str, Any]],
+    keep_nonempty_segments: bool = False,
+) -> List[Dict[str, Any]]:
     """Distribute when word counts match exactly."""
-    seg_word_counts = [len(_split_words((s.get("text_raw") or "").strip())) for s in segments]
+    seg_word_counts = [len(_split_words((s.get("text_raw") or s.get("text") or "").strip())) for s in segments]
     words_punct = _split_words(punctuated_text)
-    
+
     out_segments: List[Dict[str, Any]] = []
     cursor = 0
     for s, cnt in zip(segments, seg_word_counts):
@@ -647,13 +680,22 @@ def _distribute_exact_match(punctuated_text: str, segments: List[Dict[str, Any]]
         else:
             piece_words = words_punct[cursor : cursor + cnt]
             cursor += cnt
-            out_segments.append({**s, "text_punct": " ".join(piece_words).strip()})
+            piece = " ".join(piece_words).strip()
+            if not piece and keep_nonempty_segments:
+                raw = (s.get("text_raw") or s.get("text") or "").strip()
+                piece = _add_basic_punctuation(raw) if raw else ""
+            out_segments.append({**s, "text_punct": piece})
     return out_segments
 
 
-def _distribute_fuzzy_match(punctuated_text: str, segments: List[Dict[str, Any]], original_concat: str) -> List[Dict[str, Any]]:
+def _distribute_fuzzy_match(
+    punctuated_text: str,
+    segments: List[Dict[str, Any]],
+    original_concat: str,
+    keep_nonempty_segments: bool = False,
+) -> List[Dict[str, Any]]:
     """Distribute using a word-level alignment between original_concat and punctuated_text.
-    
+
     Strategy:
     - Tokenize both original_concat and punctuated_text into words and punctuation.
     - Use SequenceMatcher on lowercased word sequences to get opcodes.
@@ -666,15 +708,20 @@ def _distribute_fuzzy_match(punctuated_text: str, segments: List[Dict[str, Any]]
     if not original_concat:
         return [dict(s) for s in segments]
     if not punctuated_text:
-        # Nothing to distribute, return empty punct fields
-        out_segments = []
+        # Nothing to distribute, return empty or fallback
+        out_segments: List[Dict[str, Any]] = []
         for s in segments:
-            out_segments.append({**s, "text_punct": ""})
+            raw = (s.get("text_raw") or s.get("text") or "").strip()
+            if keep_nonempty_segments and raw:
+                out_segments.append({**s, "text_punct": _add_basic_punctuation(raw)})
+            else:
+                out_segments.append({**s, "text_punct": ""})
+        print("[punct-align] fuzzy: empty punctuated_text; emitted fallback =", keep_nonempty_segments)
         return out_segments
 
     # Build original word list and per-segment word counts
     orig_words = _split_words(original_concat)
-    seg_word_counts: List[int] = [len(_split_words((s.get("text_raw") or "").strip())) for s in segments]
+    seg_word_counts: List[int] = [len(_split_words((s.get("text_raw") or s.get("text") or "").strip())) for s in segments]
 
     if not orig_words:
         return [dict(s) for s in segments]
@@ -759,7 +806,7 @@ def _distribute_fuzzy_match(punctuated_text: str, segments: List[Dict[str, Any]]
     out_segments: List[Dict[str, Any]] = []
     word_cursor = 0
     for seg_idx, s in enumerate(segments):
-        raw_text = (s.get("text_raw") or "").strip()
+        raw_text = (s.get("text_raw") or s.get("text") or "").strip()
         cnt = seg_word_counts[seg_idx]
         if cnt == 0:
             out_segments.append({**s, "text_punct": ""})
@@ -769,9 +816,13 @@ def _distribute_fuzzy_match(punctuated_text: str, segments: List[Dict[str, Any]]
         for wi in range(word_cursor, min(word_cursor + cnt, len(mapped_per_orig))):
             seg_tokens.extend(mapped_per_orig[wi])
         word_cursor += cnt
-        # Fallback: if nothing mapped (e.g., LLM deleted all words), leave empty
         if not seg_tokens:
-            out_segments.append({**s, "text_punct": ""})
+            # Log and optionally fallback
+            print(f"[punct-align] empty_map seg={seg_idx} cnt={cnt} keep_nonempty={keep_nonempty_segments}")
+            if keep_nonempty_segments and raw_text:
+                out_segments.append({**s, "text_punct": _add_basic_punctuation(raw_text)})
+            else:
+                out_segments.append({**s, "text_punct": ""})
         else:
             # Join tokens ensuring proper spacing/punctuation
             # seg_tokens may already contain word+punct strings; simply join with space and normalize whitespace
@@ -971,12 +1022,16 @@ def _safe_distribute_punct_to_segments(
     temperature: float = 0.0,
     batch_prompts: int = 1,
     show_progress: bool = False,
+    keep_nonempty_segments: bool = False,
 ) -> List[Dict[str, Any]]:
     """Distribute punctuated text to segments using improved fuzzy matching.
-    
-    No fallback - always uses the improved distribution logic.
+
+    Behavior:
+    - Default: strict alignment (may leave text_punct empty when LLM deletes words).
+    - When keep_nonempty_segments is True: apply gentle fallback to avoid empty text_punct
+      by minimally punctuating the original segment text.
     """
-    return _distribute_punct_to_segments(punctuated_text, segments)
+    return _distribute_punct_to_segments(punctuated_text, segments, keep_nonempty_segments=keep_nonempty_segments)
 
 
 def _build_segment_batches_by_token_budget(
@@ -1311,11 +1366,11 @@ def main() -> None:
         if q is not None:
             kwargs["quantization"] = q
         try:
-            return LLM(**kwargs)
+            return LLM(**kwargs)  # type: ignore[arg-type, call-arg, misc]
         except Exception as e:
             if "Quantization method specified in the model config" in str(e):
                 kwargs.pop("quantization", None)
-                return LLM(**kwargs)
+                return LLM(**kwargs)  # type: ignore[arg-type, call-arg, misc]
             raise
 
     asr_json_path = Path(args.asr_json)
@@ -1332,10 +1387,70 @@ def main() -> None:
 
     # English prompts that request Vietnamese outputs
     punct_system_default = (
-        "You are a Vietnamese punctuation and capitalization assistant. Task: given Vietnamese text, return the exact same words but with correct punctuation (., ?, !, ,) and sentence-case capitalization. Do not translate. Do not add, remove, or reorder any words. Output Vietnamese plain text only, no quotes, no markdown, no explanations. Respond in Vietnamese only."
+        """<instruction>
+    You are an expert in Vietnamese grammar and punctuation. Your task is to meticulously correct the input text by adding proper punctuation and capitalization.
+    - Add all necessary punctuation, including commas, periods, question marks, etc.
+    - Correct capitalization for the start of sentences and proper nouns (e.g., 'hà nội' -> 'Hà Nội').
+    - Ensure the original wording, word order, and meaning are perfectly preserved.
+    - Your output must be a single, coherent block of punctuated text and nothing else.
+    </instruction>
+    <example>
+    <input>xin chào thế giới đây là một ví dụ về khôi phục dấu câu</input>
+    <output>Xin chào thế giới, đây là một ví dụ về khôi phục dấu câu.</output>
+    </example>
+    <example>
+    <input>bạn tên là gì tôi tên là nam</input>
+    <output>Bạn tên là gì? Tôi tên là Nam.</output>
+    </example>
+    <example>
+    <input>tôi đang xem một buổi lai trim trên phây búc về trí tuệ nhân tạo ai</input>
+    <output>Tôi đang xem một buổi livestream trên Facebook về trí tuệ nhân tạo AI.</output>
+    </example>
+    <example>
+    <input>hôm qua tại hà nội thủ tướng đã nói chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế</input>
+    <output>Hôm qua tại Hà Nội, Thủ tướng đã nói: "Chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế."</output>
+    </example>
+    <policy>
+    ABSOLUTE RULE: Do not delete, replace, or rephrase any words from the original input. Your only task is to add punctuation and capitalization. The original words must be kept exactly as they are.
+    </policy>"""
     )
     sum_system_default = (
-        "You are a careful summarization assistant. Summarize the input content in Vietnamese. Respond as strict JSON with keys: bullets (an array of 3-7 concise Vietnamese bullet points, each <= 20 words) and abstract (2-3 Vietnamese sentences). No extra keys, no code fences, no markdown. Do not fabricate details. Use only information from the input. Respond in Vietnamese only."
+        """<instruction>
+    You are a highly skilled Vietnamese text analysis engine. Your task is to generate a concise summary of the input text and format it as a single, valid JSON object.
+    - The JSON object must contain exactly two keys: "bullets" and "abstract".
+    - The "bullets" value must be an array of 3 to 7 short Vietnamese sentences (max 20 words each), highlighting the main points.
+    - The "abstract" value must be a string containing a 2-3 sentence summary in Vietnamese.
+    - The summary must be based exclusively on the provided text.
+    - Your output MUST be only the JSON object. Do not include any other text, explanations, or markdown formatting before or after the JSON.
+    </instruction>
+    <example>
+    <input>Hệ thống nhận dạng giọng nói đã trở thành một công nghệ phổ biến. Nó được sử dụng trong nhiều ứng dụng từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả.</input>
+    <output>
+    {
+      "bullets": [
+        "Hệ thống nhận dạng giọng nói là công nghệ phổ biến.",
+        "Nó có nhiều ứng dụng như trợ lý ảo và điều khiển xe hơi.",
+        "Công nghệ này giúp tăng sự tiện lợi và hiệu quả."
+      ],
+      "abstract": "Hệ thống nhận dạng giọng nói là một công nghệ phổ biến được sử dụng trong nhiều ứng dụng, từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả cho người dùng."
+    }
+    </output>
+    </example>
+    <example>
+    <input>Trí tuệ nhân tạo đang thay đổi thế giới việc làm. Nhiều công việc lặp đi lặp lại có thể được tự động hóa, giúp con người tập trung vào các nhiệm vụ sáng tạo và chiến lược hơn. Tuy nhiên, điều này cũng đặt ra thách thức về đào tạo lại lực lượng lao động để họ có thể thích ứng với các vai trò mới. Các chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề này.</input>
+    <output>
+    {
+      "bullets": [
+        "Trí tuệ nhân tạo đang làm thay đổi thị trường lao động.",
+        "Các công việc lặp đi lặp lại đang được tự động hóa.",
+        "Con người có thể tập trung vào công việc sáng tạo và chiến lược.",
+        "Thách thức đặt ra là phải đào tạo lại lực lượng lao động.",
+        "Chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề."
+      ],
+      "abstract": "Trí tuệ nhân tạo đang thay đổi thế giới việc làm bằng cách tự động hóa các công việc lặp đi lặp lại, cho phép con người tập trung vào các nhiệm vụ sáng tạo hơn. Tuy nhiên, điều này tạo ra nhu cầu cấp thiết về việc đào tạo lại lực lượng lao động, đòi hỏi sự hợp tác giữa chính phủ và doanh nghiệp."
+    }
+    </output>
+    </example>"""
     )
     punct_system = str(cfg_get(["punctuation", "system_prompt"], punct_system_default))
     sum_system = str(cfg_get(["summarization", "system_prompt"], sum_system_default))
@@ -1411,6 +1526,7 @@ def main() -> None:
         return
 
     # Stage 1: punctuation LLM instance and segmented-batching processing
+    llm_punc: Optional[Any] = None
     llm_punc = build_llm(p_model_id, p_quant, p_mml, p_gmu, p_mns, p_mbt)
     punct_segments: List[Dict[str, Any]]
     transcript_punct: str
@@ -1528,7 +1644,7 @@ def main() -> None:
     else:
         # Free punctuation engine VRAM before building a new model to avoid OOM
         with suppress(Exception):
-            del llm_punc
+            llm_punc = None
         # Only clear cache if debug flag is set or switching models (higher chance of OOM)
         if DEBUG_EMPTY_CACHE or not reuse:
             with suppress(Exception):
@@ -1569,7 +1685,7 @@ def main() -> None:
         with suppress(Exception):
             del llm_sum
     with suppress(Exception):
-        del llm_punc
+        llm_punc = None
     # Only clear cache at end if debug flag is set
     if DEBUG_EMPTY_CACHE:
         with suppress(Exception):

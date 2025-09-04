@@ -8,6 +8,7 @@ import os
 import asyncio
 from typing import Any, Dict, Optional, Union
 from pathlib import Path
+from litestar.datastructures import UploadFile
 
 from ..config import get_config
 from .exceptions import AudioProcessingException
@@ -46,16 +47,48 @@ class ServiceMode:
     AUTO = "auto"
 
 
+class _BytesUploadFile(UploadFile):
+    """
+    Lightweight UploadFile subclass for tests/benchmarks that supplies the minimal
+    surface we need (async read plus filename/content_type). This avoids relying
+    on specific UploadFile constructor signatures across litestar versions.
+    """
+    def __init__(self, data: bytes, filename: str = "upload.bin", content_type: str = "application/octet-stream"):
+        # Do not call super().__init__ to avoid signature instability; just set attributes used downstream
+        self._data = data
+        self.filename = filename
+        self.content_type = content_type
+
+    async def read(self, size: int = -1) -> bytes:
+        # Match common UploadFile signature shape; return full data when size < 0
+        if size is None or size < 0:
+            return self._data
+        return self._data[:size]
+
+
 def get_service_mode() -> str:
     """
-    Determine which service mode to use based on application configuration.
+    Determine which service mode to use.
+
+    Priority:
+      1) Environment variable OMOAI_SERVICE_MODE (if set and valid)
+      2) Config value config.api.service_mode
+      3) Fallback to auto
 
     Returns:
         Service mode: 'script', 'memory', or 'auto'
     """
+    # 1) Respect explicit environment override when present
+    env_mode = os.environ.get("OMOAI_SERVICE_MODE")
+    if env_mode:
+        env_mode = str(env_mode).lower()
+        if env_mode in [ServiceMode.SCRIPT_BASED, ServiceMode.IN_MEMORY, ServiceMode.AUTO]:
+            return env_mode
+
+    # 2) Fall back to configuration
     try:
         config = get_config()
-        mode = getattr(config.api, "service_mode", "auto") or "auto"
+        mode = getattr(config.api, "service_mode", None) or "auto"
         mode = str(mode).lower()
     except Exception:
         # If config cannot be loaded, fall back to auto
@@ -121,20 +154,29 @@ async def asr_service(data: ASRRequest) -> ASRResponse:
     return asr_v1(data)
 
 
-async def postprocess_service(data: PostprocessRequest) -> PostprocessResponse:
+async def postprocess_service(data: PostprocessRequest, output_params: Optional[dict] = None) -> PostprocessResponse:
     """
     Smart postprocessing service with automatic fallback.
     
     Tries cached models first, falls back to script-based if needed.
+    
+    Accepts optional output_params and forwards them to underlying implementations.
     """
     if await should_use_in_memory_service():
         try:
-            return await postprocess_v2(data)
+            # Forward output_params if supported by v2 implementation
+            try:
+                return await postprocess_v2(data, output_params)  # type: ignore
+            except TypeError:
+                return await postprocess_v2(data)  # fallback if v2 doesn't accept params
         except Exception as e:
             print(f"Warning: In-memory postprocessing failed, falling back to script: {e}")
     
-    # Fallback to script-based service
-    return postprocess_v1(data)
+    # Fallback to script-based service; attempt to forward output_params if accepted
+    try:
+        return postprocess_v1(data, output_params)  # type: ignore
+    except TypeError:
+        return postprocess_v1(data)
 
 
 async def run_full_pipeline(data: PipelineRequest, output_params: Optional[dict] = None) -> PipelineResponse:
@@ -145,6 +187,27 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[dict]
 
     Accepts optional output_params and forwards them to underlying implementations.
     """
+
+    # Guard: ensure uploaded audio is not empty to avoid ffmpeg/script failures later.
+    # Read the full upload, validate length, and wrap it back into a lightweight UploadFile wrapper.
+    if hasattr(data, "audio_file") and data.audio_file is not None:
+        try:
+            # Read the full content (consumes the UploadFile stream)
+            file_bytes = await data.audio_file.read()
+        except Exception:
+            # If reading fails, raise a clear processing error
+            raise AudioProcessingException("Failed to read uploaded audio file")
+
+        if not file_bytes or len(file_bytes) == 0:
+            raise AudioProcessingException("Uploaded audio file is empty")
+
+        # Replace with a stable in-memory UploadFile-compatible wrapper so downstream code can re-read
+        data.audio_file = _BytesUploadFile(
+            data=file_bytes,
+            filename=getattr(data.audio_file, "filename", "upload.bin"),
+            content_type=getattr(data.audio_file, "content_type", "application/octet-stream"),
+        )
+
     if await should_use_in_memory_service():
         try:
             # Forward output_params if supported by v2 implementation
@@ -308,9 +371,11 @@ async def benchmark_service_performance(
                     tmp.write(test_data)
                     tmp.flush()
                     
-                    upload_file = UploadFile(
+                    # Use a lightweight UploadFile-compatible wrapper to avoid constructor mismatches
+                    upload_file = _BytesUploadFile(
+                        data=test_data,
                         filename="test.wav",
-                        file_path=Path(tmp.name)
+                        content_type="audio/wav",
                     )
                     
                     request = PipelineRequest(audio_file=upload_file)
@@ -335,9 +400,11 @@ async def benchmark_service_performance(
                 tmp.write(test_data)
                 tmp.flush()
                 
-                upload_file = UploadFile(
+                # Use a lightweight UploadFile-compatible wrapper to avoid constructor mismatches
+                upload_file = _BytesUploadFile(
+                    data=test_data,
                     filename="test.wav",
-                    file_path=Path(tmp.name)
+                    content_type="audio/wav",
                 )
                 
                 request = PipelineRequest(audio_file=upload_file)

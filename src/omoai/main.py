@@ -3,10 +3,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import os
-import subprocess
 import sys
 from datetime import datetime, timezone
+import yaml
 
+from omoai.pipeline.preprocess import preprocess_to_wav
+from omoai.pipeline.asr import run_asr
+from omoai.pipeline.postprocess import run_postprocess
 
 def _repo_root() -> Path:
     here = Path(__file__).resolve()
@@ -15,84 +18,64 @@ def _repo_root() -> Path:
             return parent
     return here.parent
 
-
 def _default_config_path() -> Path:
     # Prefer explicit CLI, then OMOAI_CONFIG env var, then project-relative config
     env_cfg = os.environ.get("OMOAI_CONFIG")
     return Path(env_cfg) if env_cfg else (_repo_root() / "config.yaml")
 
-
 def run_pipeline(audio_path: Path, out_dir: Path, model_dir: Path | None, config_path: Path | None) -> int:
-    repo = _repo_root()
-    cfg = config_path or _default_config_path()
+    cfg_path = config_path or _default_config_path()
+    with open(cfg_path, "r") as f:
+        config = yaml.safe_load(f)
+
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Preprocess to 16kHz mono PCM16 WAV
     preprocessed = out_dir / "preprocessed.wav"
-    cmd_pre = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(audio_path),
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-vn",
-        "-c:a",
-        "pcm_s16le",
-        str(preprocessed),
-    ]
     try:
-        subprocess.run(cmd_pre, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        preprocess_to_wav(audio_path, preprocessed)
     except Exception as e:
         print(f"[orchestrator] ffmpeg failed: {e}")
         return 1
 
     # 2) ASR
     asr_json = out_dir / "asr.json"
-    cmd_asr = [
-        sys.executable,
-        "-m",
-        "scripts.asr",
-        "--config",
-        str(cfg),
-        "--audio",
-        str(preprocessed),
-        "--out",
-        str(asr_json),
-    ]
-    if model_dir is not None:
-        cmd_asr += ["--model-dir", str(model_dir)]
+    asr_config = config.get("asr", {})
+    paths_config = config.get("paths", {})
+    chunkformer_dir = Path(paths_config.get("chunkformer_dir", "src/chunkformer"))
+    model_checkpoint = model_dir or Path(paths_config.get("chunkformer_checkpoint"))
+
     try:
-        subprocess.run(cmd_asr, check=True)
+        run_asr(
+            audio_path=preprocessed,
+            model_checkpoint=model_checkpoint,
+            out_path=asr_json,
+            total_batch_duration=asr_config.get("total_batch_duration_s", 1800),
+            chunk_size=asr_config.get("chunk_size", 64),
+            left_context_size=asr_config.get("left_context_size", 128),
+            right_context_size=asr_config.get("right_context_size", 128),
+            device_str=asr_config.get("device", "auto"),
+            autocast_dtype=asr_config.get("autocast_dtype", "fp16"),
+            chunkformer_dir=chunkformer_dir,
+        )
     except Exception as e:
         print(f"[orchestrator] ASR failed: {e}")
         return 2
 
     # 3) Post-process (punctuation + summary)
     final_json = out_dir / "final.json"
-    cmd_post = [
-        sys.executable,
-        "-m",
-        "scripts.post",
-        "--config",
-        str(cfg),
-        "--asr-json",
-        str(asr_json),
-        "--out",
-        str(final_json),
-        "--auto-outdir",  # always write separate transcript/summary files and reuse ASR folder
-    ]
     try:
-        subprocess.run(cmd_post, check=True)
+        run_postprocess(
+            asr_json_path=asr_json,
+            out_path=final_json,
+            config=config,
+        )
     except Exception as e:
         print(f"[orchestrator] Post-process failed: {e}")
         return 3
 
     print(f"[orchestrator] Completed. Output: {final_json}")
     return 0
-
 
 def main() -> None:
     
@@ -105,7 +88,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.interactive or not args.audio:
-        from interactive_cli import run_interactive_cli
+        from omoai.interactive_cli import run_interactive_cli
         run_interactive_cli()
         return
 

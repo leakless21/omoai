@@ -3,7 +3,7 @@ from pathlib import Path
 
 import types
 
-from scripts.post import punctuate_text, summarize_text
+from omoai.pipeline.postprocess import punctuate_text, summarize_text
 
 
 class StubTokenizer:
@@ -38,8 +38,10 @@ class StubLLM:
 def test_punctuate_text_stub():
     llm = StubLLM()
     text = "xin chao moi nguoi"
-    out = punctuate_text(llm, text, system_prompt="stub", max_tokens=64)
-    assert "xin chao moi nguoi" in out
+    from omoai.pipeline.asr import ASRResult, ASRSegment
+    asr_result = ASRResult(segments=[ASRSegment(start=0, end=1, text=text)], transcript=text, audio_duration_seconds=1, sample_rate=16000, metadata={})
+    out = punctuate_transcript(asr_result, config={})
+    assert "xin chao moi nguoi" in out[0].text
 
 
 def test_summarize_text_stub_json_shape():

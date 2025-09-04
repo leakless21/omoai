@@ -321,7 +321,7 @@ class OutputConfig(BaseModel):
         description="Legacy transcript filename (use transcript.file_punct instead)"
     )
     summary_file: str = Field(
-        default="summary.txt", 
+        default="summary.txt",
         description="Legacy summary filename (use summary.file instead)"
     )
     wrap_width: int = Field(
@@ -348,6 +348,20 @@ class OutputConfig(BaseModel):
         default="final.json",
         description="Final JSON output filename"
     )
+
+    # API-related output controls
+    save_on_api: bool = Field(
+        default=False,
+        description="If true, the /pipeline API will persist configured outputs to disk"
+    )
+    save_formats_on_api: List[str] = Field(
+        default_factory=lambda: ["final_json", "segments"],
+        description="Which artifacts to persist when save_on_api is true (e.g. final_json, segments, transcript_punct, transcript_raw)"
+    )
+    api_output_dir: Optional[Path] = Field(
+        default=None,
+        description="Optional override directory to save API outputs (if not set, paths.out_dir is used)"
+    )
     
     @model_validator(mode="after")
     def migrate_legacy_fields(self) -> "OutputConfig":
@@ -363,6 +377,14 @@ class OutputConfig(BaseModel):
         if self.summary_file != "summary.txt":
             self.summary.file = self.summary_file
         
+        # Ensure api_output_dir Path is resolved if provided as string in YAML
+        if isinstance(self.api_output_dir, (str,)) and self.api_output_dir:
+            try:
+                self.api_output_dir = Path(self.api_output_dir)
+            except Exception:
+                # keep original value; validation of path happens later when used
+                pass
+
         return self
 
 

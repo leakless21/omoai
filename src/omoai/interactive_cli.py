@@ -9,6 +9,7 @@ Uses the questionary library for user-friendly interactive prompts.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -481,6 +482,151 @@ def _show_configuration() -> None:
     ).ask()
 
 
+def _show_quality_analysis() -> None:
+    """Show quality metrics and diffs from processed files."""
+    print("\n=== Quality Metrics & Diffs Analysis ===")
+    
+    # Get final JSON file
+    final_json_str = questionary.text(
+        "Please enter the path to the final.json file:",
+        validate=_validate_file_exists,
+        style=OMOAI_STYLE
+    ).ask()
+    
+    if not final_json_str:
+        print("Operation cancelled.")
+        return
+    
+    final_json_path = Path(final_json_str)
+    
+    try:
+        with open(final_json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        print("\n--- Quality Analysis Results ---")
+        
+        # Display quality metrics if available
+        if 'quality_metrics' in data and data['quality_metrics']:
+            metrics = data['quality_metrics']
+            print("\n📊 Quality Metrics:")
+            print(f"  WER (Word Error Rate): {metrics.get('wer', 'N/A')}")
+            print(f"  CER (Character Error Rate): {metrics.get('cer', 'N/A')}")
+            print(f"  PER (Punctuation Error Rate): {metrics.get('per', 'N/A')}")
+            print(f"  U-WER (Unpunctuated WER): {metrics.get('uwer', 'N/A')}")
+            print(f"  F-WER (Formatted WER): {metrics.get('fwer', 'N/A')}")
+            print(f"  Alignment Confidence: {metrics.get('alignment_confidence', 'N/A')}")
+            
+            # Provide interpretation
+            wer = metrics.get('wer')
+            if wer is not None:
+                if wer < 0.05:
+                    print("  🟢 WER indicates excellent performance")
+                elif wer < 0.10:
+                    print("  🟡 WER indicates good performance")
+                elif wer < 0.15:
+                    print("  🟠 WER indicates acceptable performance")
+                else:
+                    print("  🔴 WER indicates poor performance - may need investigation")
+        else:
+            print("\n⚠️  No quality metrics found in the file.")
+            print("   Make sure to run processing with quality metrics enabled:")
+            print("   - Set 'alignment.compute_quality_metrics: true' in config.yaml")
+            print("   - Or use API with 'include_quality_metrics=true' parameter")
+        
+        # Display diffs if available
+        if 'diffs' in data and data['diffs']:
+            diffs = data['diffs']
+            print("\n📝 Human-Readable Diff:")
+            
+            if 'original_text' in diffs and diffs['original_text']:
+                print(f"\nOriginal Text:")
+                print(f"  {diffs['original_text'][:200]}{'...' if len(diffs['original_text']) > 200 else ''}")
+            
+            if 'punctuated_text' in diffs and diffs['punctuated_text']:
+                print(f"\nPunctuated Text:")
+                print(f"  {diffs['punctuated_text'][:200]}{'...' if len(diffs['punctuated_text']) > 200 else ''}")
+            
+            if 'diff_output' in diffs and diffs['diff_output']:
+                print(f"\nDiff Output:")
+                print(f"  {diffs['diff_output'][:300]}{'...' if len(diffs['diff_output']) > 300 else ''}")
+            
+            if 'alignment_summary' in diffs and diffs['alignment_summary']:
+                print(f"\nAlignment Summary:")
+                print(f"  {diffs['alignment_summary']}")
+        else:
+            print("\n⚠️  No diff information found in the file.")
+            print("   Make sure to run processing with diff generation enabled:")
+            print("   - Set 'alignment.generate_diffs: true' in config.yaml")
+            print("   - Or use API with 'include_diffs=true' parameter")
+        
+        # Show basic file info
+        print(f"\n📁 File Information:")
+        print(f"  File: {final_json_path}")
+        print(f"  Size: {final_json_path.stat().st_size} bytes")
+        
+        if 'segments' in data and data['segments']:
+            segments = data['segments']
+            print(f"  Segments: {len(segments)}")
+            total_duration = sum(seg.get('end', 0) - seg.get('start', 0) for seg in segments)
+            print(f"  Total Duration: {total_duration:.2f} seconds")
+        
+        print("---")
+        
+        # Ask if user wants to save the analysis
+        save_analysis = questionary.confirm(
+            "Would you like to save this analysis to a file?",
+            default=False,
+            style=OMOAI_STYLE
+        ).ask()
+        
+        if save_analysis:
+            default_output = final_json_path.parent / "quality_analysis.txt"
+            output_path_str = questionary.text(
+                "Enter path for analysis output file:",
+                default=str(default_output),
+                style=OMOAI_STYLE
+            ).ask()
+            
+            if output_path_str:
+                output_path = Path(output_path_str)
+                try:
+                    with open(output_path, 'w', encoding='utf-8') as f:
+                        f.write("OMOAI Quality Analysis Report\n")
+                        f.write("=" * 50 + "\n\n")
+                        f.write(f"File: {final_json_path}\n")
+                        f.write(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n")
+                        
+                        if 'quality_metrics' in data and data['quality_metrics']:
+                            f.write("Quality Metrics:\n")
+                            metrics = data['quality_metrics']
+                            for key, value in metrics.items():
+                                f.write(f"  {key}: {value}\n")
+                            f.write("\n")
+                        
+                        if 'diffs' in data and data['diffs']:
+                            f.write("Diff Information:\n")
+                            diffs = data['diffs']
+                            for key, value in diffs.items():
+                                if value:
+                                    f.write(f"  {key}:\n")
+                                    f.write(f"    {value}\n\n")
+                    
+                    print(f"[SUCCESS] Analysis saved to: {output_path}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to save analysis: {e}")
+        
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Invalid JSON file: {e}")
+    except Exception as e:
+        print(f"[ERROR] Failed to analyze file: {e}")
+    
+    # Wait for user to continue
+    questionary.press_any_key_to_continue(
+        "Press any key to return to the main menu...",
+        style=OMOAI_STYLE
+    ).ask()
+
+
 def run_interactive_cli() -> None:
     """Main entry point for the interactive CLI."""
     print("\n🎧 Welcome to OMOAI Interactive CLI")
@@ -494,6 +640,7 @@ def run_interactive_cli() -> None:
                 choices=[
                     "Run Full Pipeline",
                     "Run Individual Stages",
+                    "View Quality Metrics & Diffs",
                     "Configuration",
                     "Exit"
                 ],
@@ -507,6 +654,8 @@ def run_interactive_cli() -> None:
                 _run_full_pipeline()
             elif action == "Run Individual Stages":
                 _show_individual_stages_menu()
+            elif action == "View Quality Metrics & Diffs":
+                _show_quality_analysis()
             elif action == "Configuration":
                 _show_configuration()
                 

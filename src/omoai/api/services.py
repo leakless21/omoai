@@ -23,6 +23,12 @@ from omoai.api.scripts.preprocess_wrapper import run_preprocess_script
 from omoai.api.scripts.asr_wrapper import run_asr_script
 from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
 
+# Compatibility alias: some tests import modules under the "src.omoai" package path.
+# Ensure this module object is also available under that name so patches target the same object.
+import sys as _sys
+_module = _sys.modules.get(__name__)
+if _module is not None:
+    _sys.modules.setdefault("src.omoai.api.services", _module)
 
 async def preprocess_audio_service(data: PreprocessRequest) -> PreprocessResponse:
     """

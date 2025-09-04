@@ -143,11 +143,12 @@ The `scripts/post.py` module contains the essential functions for handling the p
   4.  **Distribution Strategy**:
       - **Exact Match**: If the number of words in `original_concat` and `punctuated_text` is identical, it calls [`_distribute_exact_match`](scripts/post.py:635). This function simply distributes the words from `punctuated_text` back into the original segments based on the original word count per segment.
         - **Example**: If segment 1 had 2 words and segment 2 had 3 words, it takes the first 2 words from the punctuated text for segment 1 and the next 3 for segment 2.
-      - **Levenshtein-based Alignment**: If word counts differ, it calls [`_distribute_punct_to_segments`](scripts/post.py:652). This function uses a more robust alignment based on the Levenshtein distance (edit distance) to map words from the punctuated text back to the original segments.
+      - **Levenshtein-based Alignment**: If word counts differ, it calls [`_distribute_fuzzy_match`](scripts/post.py:678). This function uses a more robust alignment based on the Levenshtein distance (edit distance) to map words from the punctuated text back to the original segments.
         - **Word-Level Alignment**: It uses `difflib.SequenceMatcher` to find the optimal alignment between the original words and the punctuated words, handling insertions, deletions, and substitutions.
         - **Character-Level Refinement**: For each aligned word pair, it performs a character-level alignment using [`_align_chars`](scripts/post.py:820) to precisely identify character-level differences (substitutions, insertions, deletions). This allows for a more granular understanding of the changes made by the punctuation model.
         - **Mapping to Segments**: The aligned punctuated words are then distributed back to their corresponding original segments based on the word-level alignment, preserving the original segment boundaries and timings.
-  5.  **Result Construction**: It constructs a new list of segments. Each segment is a copy of the original, but with its `text_punct` field populated by the distributed text from the alignment process.
+  5.  **Fallback Handling**: When `keep_nonempty_segments` is enabled, the system prevents empty `text_punct` fields by applying minimal punctuation (capitalization + period) to segments that would otherwise be empty due to alignment failures or LLM deletions.
+  6.  **Result Construction**: It constructs a new list of segments. Each segment is a copy of the original, but with its `text_punct` field populated by the distributed text from the alignment process.
 - **Parameters**:
   - `punctuated_text` (str): The single string of punctuated text from the punctuation model.
     - **Example**: `"This is the first sentence. This is the second."`
@@ -219,20 +220,61 @@ To evaluate the performance of the punctuation model and the alignment process, 
 
 The punctuation alignment system has been enhanced with a sophisticated algorithm that combines word-level and character-level alignment to accurately distribute punctuation from the LLM output back to the original ASR segments.
 
-### `_distribute_punct_to_segments(original_words: list[str], llm_words: list[str], segments: list[dict]) -> list[dict]`
+### `_safe_distribute_punct_to_segments(punctuated_text: str, segments: list[dict], keep_nonempty_segments: bool = False) -> list[dict]`
 
-- **Purpose**: Distributes punctuated words from the LLM output back to the original ASR segments using a robust alignment algorithm that handles insertions, deletions, and substitutions.
+- **Purpose**: Safely distributes punctuated text from the LLM output back to the original ASR segments with configurable fallback behavior to prevent empty segments.
 - **Detailed Logic**:
-  1.  **Word-Level Alignment**: Uses `difflib.SequenceMatcher` to find the optimal alignment between original words and LLM words, identifying matches, substitutions, insertions, and deletions.
-  2.  **Character-Level Refinement**: For each aligned word pair, performs character-level alignment using `_align_chars` to precisely identify character-level differences.
-  3.  **Segment Mapping**: Maps aligned words back to their original segments based on word indices, preserving segment boundaries and timings.
-  4.  **Handling Deletions**: When words are deleted in the LLM output, the corresponding `text_punct` field is left empty to maintain alignment integrity.
-  5.  **Punctuation Preservation**: Ensures that punctuation from the LLM output is correctly associated with the appropriate words in each segment.
+  1.  **Empty Text Handling**: If `punctuated_text` is empty, applies fallback behavior when `keep_nonempty_segments` is enabled.
+  2.  **Word Splitting**: Splits both original concatenated text and punctuated text into words for comparison.
+  3.  **Distribution Strategy**:
+      - **Exact Match**: Calls [`_distribute_exact_match`](scripts/post.py:653) when word counts match exactly.
+      - **Fuzzy Alignment**: Calls [`_distribute_fuzzy_match`](scripts/post.py:678) when word counts differ, using Levenshtein-based alignment.
+  4.  **Fallback Behavior**: When `keep_nonempty_segments=True` and alignment results in empty `text_punct` for non-empty original segments, applies [`_add_basic_punctuation`](scripts/post.py:52) to ensure minimal punctuation (capitalization + period).
+  5.  **Debug Logging**: Outputs debug logs when segments map to empty text_punct to help diagnose alignment issues.
 - **Parameters**:
-  - `original_words` (list[str]): List of words from the original ASR segments.
-  - `llm_words` (list[str]): List of words from the punctuated LLM output.
+  - `punctuated_text` (str): The punctuated text from the LLM.
   - `segments` (list[dict]): Original ASR segments with timestamps.
-- **Return Value**: Updated list of segments with `text_punct` fields populated with aligned punctuated text.
+  - `keep_nonempty_segments` (bool): When enabled, prevents empty text_punct by applying basic punctuation fallback.
+- **Return Value**: Updated list of segments with `text_punct` fields populated, with optional fallback applied.
+
+### `_distribute_exact_match(punctuated_text: str, segments: list[dict], keep_nonempty_segments: bool = False) -> list[dict]`
+
+- **Purpose**: Distributes punctuated words when word counts match exactly between original and LLM text.
+- **Detailed Logic**:
+  1.  **Word Count Calculation**: Counts words in each original segment.
+  2.  **Direct Distribution**: Distributes punctuated words proportionally based on original segment word counts.
+  3.  **Fallback Application**: If resulting segment text is empty and `keep_nonempty_segments=True`, applies basic punctuation to original segment text.
+- **Parameters**:
+  - `punctuated_text` (str): The punctuated text from the LLM.
+  - `segments` (list[dict]): Original ASR segments.
+  - `keep_nonempty_segments` (bool): Enable fallback for empty segments.
+- **Return Value**: Segments with distributed punctuation and optional fallback.
+
+### `_distribute_fuzzy_match(punctuated_text: str, segments: list[dict], original_concat: str, keep_nonempty_segments: bool = False) -> list[dict]`
+
+- **Purpose**: Handles word count mismatches using sophisticated alignment with fallback support.
+- **Detailed Logic**:
+  1.  **Tokenization and Alignment**: Uses `difflib.SequenceMatcher` for word-level alignment between original and LLM text.
+  2.  **Punctuation Mapping**: Maps punctuation from LLM words to corresponding original word positions.
+  3.  **Opcode Processing**: Handles equal, replace, delete, and insert operations from sequence matcher.
+  4.  **Segment Assembly**: Reconstructs segments from aligned words with proper punctuation.
+  5.  **Empty Segment Handling**: When segments map to empty text and `keep_nonempty_segments=True`, applies basic punctuation fallback with debug logging.
+- **Parameters**:
+  - `punctuated_text` (str): The punctuated text from the LLM.
+  - `segments` (list[dict]): Original ASR segments.
+  - `original_concat` (str): Concatenated original text for alignment.
+  - `keep_nonempty_segments` (bool): Enable fallback for empty segments.
+- **Return Value**: Segments with aligned punctuation and optional fallback.
+
+### `_add_basic_punctuation(text: str) -> str`
+
+- **Purpose**: Applies minimal punctuation to text as a fallback when alignment fails.
+- **Detailed Logic**:
+  1.  **Capitalization**: Capitalizes the first letter of the text.
+  2.  **Termination**: Adds a period at the end if no terminating punctuation exists.
+- **Parameters**:
+  - `text` (str): The text to apply basic punctuation to.
+- **Return Value**: Text with basic punctuation applied.
 
 ### `_distribute_fuzzy_match(original_words: list[str], llm_words: list[str], segments: list[dict]) -> list[dict]`
 

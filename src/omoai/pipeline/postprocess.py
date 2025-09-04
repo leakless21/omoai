@@ -181,7 +181,32 @@ def punctuate_transcript(
     # Handle configuration
     if isinstance(config, dict):
         llm_config = config.get("llm", {})
-        system_prompt = config.get("system_prompt", "Add punctuation to the text.")
+        system_prompt = config.get("system_prompt", """<instruction>
+    You are an expert in Vietnamese grammar and punctuation. Your task is to meticulously correct the input text by adding proper punctuation and capitalization.
+    - Add all necessary punctuation, including commas, periods, question marks, etc.
+    - Correct capitalization for the start of sentences and proper nouns (e.g., 'hà nội' -> 'Hà Nội').
+    - Ensure the original wording, word order, and meaning are perfectly preserved.
+    - Your output must be a single, coherent block of punctuated text and nothing else.
+    </instruction>
+    <example>
+    <input>xin chào thế giới đây là một ví dụ về khôi phục dấu câu</input>
+    <output>Xin chào thế giới, đây là một ví dụ về khôi phục dấu câu.</output>
+    </example>
+    <example>
+    <input>bạn tên là gì tôi tên là nam</input>
+    <output>Bạn tên là gì? Tôi tên là Nam.</output>
+    </example>
+    <example>
+    <input>tôi đang xem một buổi lai trim trên phây búc về trí tuệ nhân tạo ai</input>
+    <output>Tôi đang xem một buổi livestream trên Facebook về trí tuệ nhân tạo AI.</output>
+    </example>
+    <example>
+    <input>hôm qua tại hà nội thủ tướng đã nói chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế</input>
+    <output>Hôm qua tại Hà Nội, Thủ tướng đã nói: "Chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế."</output>
+    </example>
+    <policy>
+    ABSOLUTE RULE: Do not delete, replace, or rephrase any words from the original input. Your only task is to add punctuation and capitalization. The original words must be kept exactly as they are.
+    </policy>""")
         temperature = config.get("sampling", {}).get("temperature", 0.0)
         preserve_words = config.get("preserve_original_words", True)
     else:
@@ -338,7 +363,42 @@ def summarize_text(
     # Handle configuration
     if isinstance(config, dict):
         llm_config = config.get("llm", {})
-        system_prompt = config.get("system_prompt", "Summarize the text.")
+        system_prompt = config.get("system_prompt", """<instruction>
+    You are a highly skilled Vietnamese text analysis engine. Your task is to generate a concise summary of the input text and format it as a single, valid JSON object.
+    - The JSON object must contain exactly two keys: "bullets" and "abstract".
+    - The "bullets" value must be an array of 3 to 7 short Vietnamese sentences (max 20 words each), highlighting the main points.
+    - The "abstract" value must be a string containing a 2-3 sentence summary in Vietnamese.
+    - The summary must be based exclusively on the provided text.
+    - Your output MUST be only the JSON object. Do not include any other text, explanations, or markdown formatting before or after the JSON.
+    </instruction>
+    <example>
+    <input>Hệ thống nhận dạng giọng nói đã trở thành một công nghệ phổ biến. Nó được sử dụng trong nhiều ứng dụng từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả.</input>
+    <output>
+    {
+      "bullets": [
+        "Hệ thống nhận dạng giọng nói là công nghệ phổ biến.",
+        "Nó có nhiều ứng dụng như trợ lý ảo và điều khiển xe hơi.",
+        "Công nghệ này giúp tăng sự tiện lợi và hiệu quả."
+      ],
+      "abstract": "Hệ thống nhận dạng giọng nói là một công nghệ phổ biến được sử dụng trong nhiều ứng dụng, từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả cho người dùng."
+    }
+    </output>
+    </example>
+    <example>
+    <input>Trí tuệ nhân tạo đang thay đổi thế giới việc làm. Nhiều công việc lặp đi lặp lại có thể được tự động hóa, giúp con người tập trung vào các nhiệm vụ sáng tạo và chiến lược hơn. Tuy nhiên, điều này cũng đặt ra thách thức về đào tạo lại lực lượng lao động để họ có thể thích ứng với các vai trò mới. Các chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề này.</input>
+    <output>
+    {
+      "bullets": [
+        "Trí tuệ nhân tạo đang làm thay đổi thị trường lao động.",
+        "Các công việc lặp đi lặp lại đang được tự động hóa.",
+        "Con người có thể tập trung vào công việc sáng tạo và chiến lược.",
+        "Thách thức đặt ra là phải đào tạo lại lực lượng lao động.",
+        "Chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề."
+      ],
+      "abstract": "Trí tuệ nhân tạo đang thay đổi thế giới việc làm bằng cách tự động hóa các công việc lặp đi lặp lại, cho phép con người tập trung vào các nhiệm vụ sáng tạo hơn. Tuy nhiên, điều này tạo ra nhu cầu cấp thiết về việc đào tạo lại lực lượng lao động, đòi hỏi sự hợp tác giữa chính phủ và doanh nghiệp."
+    }
+    </output>
+    </example>""")
         temperature = config.get("sampling", {}).get("temperature", 0.7)
         use_map_reduce = config.get("map_reduce", False)
     else:

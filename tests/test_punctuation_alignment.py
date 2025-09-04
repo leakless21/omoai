@@ -5,7 +5,9 @@ import pytest
 # Add the script's directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'scripts')))
 
-from post import (
+# The dynamic sys.path modification above may not be visible to static type/check tools (Pylance).
+# Silence the import resolver for the test runner; runtime import works during pytest.
+from post import (  # type: ignore
     _force_preserve_with_alignment,
     _align_chars,
     _compute_wer,
@@ -351,3 +353,24 @@ def test_generate_human_readable_diff_vietnamese(orig_text, llm_text, expected_d
 def test_distribute_punct_to_segments_vietnamese(punctuated_text, segments, expected_segments):
     result = _distribute_punct_to_segments(punctuated_text, segments)
     assert result == expected_segments
+def test_keep_nonempty_segments_fallback():
+    # Scenario: LLM output deletes a middle word -> that segment would be empty.
+    segments = [
+        {"start": 0, "end": 1, "text_raw": "hello"},
+        {"start": 1, "end": 2, "text_raw": "big"},
+        {"start": 2, "end": 3, "text_raw": "world"},
+    ]
+    punctuated_text = "Hello, world."  # "big" deleted by LLM
+
+    # Default behavior: deleted word leads to empty text_punct for that segment
+    result_default = _distribute_punct_to_segments(punctuated_text, [dict(s) for s in segments])
+    assert result_default[1]["text_punct"] == ""
+
+    # With fallback enabled, the non-empty original segment should get basic punctuation
+    result_fallback = _distribute_punct_to_segments(
+        punctuated_text, [dict(s) for s in segments], keep_nonempty_segments=True
+    )
+    assert result_fallback[1]["text_punct"] == "Big."
+    # Ensure other segments are still punctuated as expected
+    assert result_fallback[0]["text_punct"].startswith("Hello")
+    assert result_fallback[2]["text_punct"].endswith(".")

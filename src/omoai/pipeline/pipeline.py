@@ -42,6 +42,7 @@ def run_full_pipeline_memory(
     output_dir: Optional[Path] = None,
     validate_input: bool = True,
     max_audio_duration: Optional[float] = None,
+    output_params: Optional[dict] = None,
 ) -> PipelineResult:
     """
     Run the complete OMOAI pipeline entirely in memory.
@@ -189,7 +190,17 @@ def run_full_pipeline_memory(
         # Stage 3: Postprocessing
         with performance_context("postprocessing", logger=logger):
             postprocess_start = time.time()
-            postprocess_result = postprocess_transcript(asr_result, config)
+            # Extract optional flags for postprocessing (quality metrics / diffs)
+            include_quality_metrics = output_params.get("include_quality_metrics", False) if output_params else False
+            include_diffs = output_params.get("include_diffs", False) if output_params else False
+            postprocess_result = postprocess_transcript(
+                asr_result,
+                config,
+                None,  # punctuation_config (use defaults)
+                None,  # summarization_config (use defaults)
+                include_quality_metrics,
+                include_diffs,
+            )
             timing["postprocessing"] = time.time() - postprocess_start
             
             logger.info("Postprocessing completed", extra={
