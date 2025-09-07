@@ -1,7 +1,7 @@
 from litestar import Litestar
 from pathlib import Path
 
-from omoai.api.config import get_config
+from omoai.config.schemas import get_config
 from omoai.api.main_controller import MainController
 from omoai.api.preprocess_controller import PreprocessController
 from omoai.api.asr_controller import ASRController

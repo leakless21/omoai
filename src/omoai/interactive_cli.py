@@ -83,10 +83,28 @@ def _get_default_output_dir(audio_path: Path, config: Dict[str, Any]) -> Path:
 
 
 def _get_default_model_dir(config: Dict[str, Any]) -> str:
-    """Get default model directory from config."""
+    """Get default model directory from centralized Pydantic config.
+
+    Prefer the validated configuration from omoai.config.schemas. If that is
+    unavailable (e.g., running as an ad-hoc script without package imports),
+    fall back to any value present in the raw YAML loaded earlier. If neither
+    is present, return an empty string so the CLI treats the model dir as
+    optional (no hard-coded path).
+    """
+    try:
+        # Prefer the centralized Pydantic configuration
+        from omoai.config.schemas import get_config
+        cfg = get_config()
+        model_dir = getattr(cfg.paths, "chunkformer_checkpoint", None)
+        if model_dir:
+            return str(model_dir)
+    except Exception:
+        # Import failure or missing config: continue to check raw YAML below
+        pass
+
     paths = config.get("paths", {}) if isinstance(config, dict) else {}
     model_dir = paths.get("chunkformer_checkpoint") if isinstance(paths, dict) else None
-    return str(model_dir) if model_dir else "models/chunkformer/chunkformer-large-vie"
+    return str(model_dir) if model_dir else ""
 
 
 def _validate_file_exists(path: str) -> bool | str:

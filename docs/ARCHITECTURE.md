@@ -17,7 +17,7 @@ The system is composed of several key components:
 
 ### ASR Engine
 
-The ASR engine is responsible for converting audio data into a textual representation. It processes audio segments and generates a JSON output containing the transcribed text along with timing information.
+The ASR engine is responsible for converting audio data into a textual representation. It processes audio segments and generates a JSON output containing the transcribed text along with timing information. The ASR processing has been centralized and simplified to improve maintainability.
 
 **Responsibilities:**
 
@@ -34,6 +34,11 @@ The ASR engine is responsible for converting audio data into a textual represent
 **Dependencies:**
 
 - External ASR libraries (e.g., Whisper, ChunkFormer).
+
+**Recent Refactoring:**
+
+- The ASR controller in [`src/omoai/api/asr_controller.py`](src/omoai/api/asr_controller.py) has been refactored to remove a legacy `ASRModelSingleton` class. The controller now exclusively uses a modern, centralized service layer for ASR processing, leading to a cleaner and more maintainable architecture.
+- A class name collision was resolved by renaming the `ASRModel` class in [`src/omoai/api/asr_controller.py`](src/omoai/api/asr_controller.py) to `ASRModelSingleton` to avoid confusion with the core PyTorch model.
 
 ### Punctuation Module
 
@@ -77,6 +82,10 @@ The corrected logic now ensures that all punctuation from the LLM's output is pr
 
 This fix guarantees that the punctuation restoration process is more accurate and reliable, leading to higher quality transcripts that are ready for consumption.
 This fix has been validated with a new test suite in [`tests/test_punctuation_alignment.py`](tests/test_punctuation_alignment.py), ensuring the correctness of the improved logic.
+
+**Recent Refactoring:**
+
+- A duplicated `_add_basic_punctuation` function was removed from [`scripts/post.py`](scripts/post.py), leaving a single, robust implementation. This improves code clarity and reduces redundancy.
 
 ### Summarization Module
 
@@ -169,6 +178,6 @@ The tests cover a wide range of scenarios, including:
 - **Simple Punctuation**: Verifies that basic punctuation (e.g., periods, commas) is correctly preserved and aligned.
 - **Insertions**: Ensures that when words are inserted from the LLM's output, their associated punctuation is also correctly inserted.
 - **Deletions**: Confirms that when words are deleted from the original text, the punctuation from the LLM's output is still applied.
-- **Replacements**: Tests that when words are replaced[text](development), the punctuation is correctly mapped to the new words.
+- **Replacements**: Tests that when words are replaced, the punctuation is correctly mapped to the new words.
 
 This comprehensive testing approach helps to prevent regressions and ensures the long-term stability of the punctuation restoration process.

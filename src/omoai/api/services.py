@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from omoai.api.config import get_config
+from omoai.config.schemas import get_config
 from omoai.api.exceptions import AudioProcessingException
 from omoai.api.models import (
     PipelineRequest,
@@ -81,7 +81,7 @@ def asr_service(data: ASRRequest) -> ASRResponse:
         # Run ASR to a temporary JSON file
         config = get_config()
         asr_json_path = Path(config.api.temp_dir) / f"asr_{os.urandom(8).hex()}.json"
-        config_path = config.config_path
+        config_path = None
 
         run_asr_script(
             audio_path=audio_path,
@@ -113,7 +113,7 @@ def postprocess_service(data: PostprocessRequest) -> PostprocessResponse:
             json.dump(data.asr_output, f, ensure_ascii=False)
 
         final_json_path = Path(config.api.temp_dir) / f"final_{os.urandom(8).hex()}.json"
-        config_path = config.config_path
+        config_path = None
 
         run_postprocess_script(
             asr_json_path=tmp_asr_json,
@@ -174,7 +174,7 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Outpu
 
         # 3) ASR via script
         asr_json_path = Path(config.api.temp_dir) / f"asr_{os.urandom(8).hex()}.json"
-        config_path = config.config_path
+        config_path = None
         logger.info(f"Starting ASR processing, output will be saved to: {asr_json_path}")
         logger.info(f"Using config path: {config_path}")
         try:

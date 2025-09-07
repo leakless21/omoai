@@ -45,21 +45,7 @@ def save_json(path: Path, data: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-
-
-def _add_basic_punctuation(text: str) -> str:
-    """Add minimal punctuation: capitalize first letter, add period at end if missing."""
-    if not text:
-        return text
-    # Capitalize first letter
-    if text[0].islower():
-        text = text[0].upper() + text[1:]
-    # Add period if no ending punctuation
-    if not text[-1] in ".!?…":
-        text = text + "."
-    return text
+ 
 def load_asr_top_level(path: Path) -> Dict[str, Any]:
     """Read only top-level keys of an ASR JSON using ijson if available.
 
@@ -847,7 +833,6 @@ def _add_basic_punctuation(text: str) -> str:
     
     return text
 
-
 # --- Character-level alignment and quality metrics ---
 def _align_chars(orig_word: str, llm_word: str) -> Tuple[List[str], List[str], List[str]]:
     """Align characters between two words using SequenceMatcher.
@@ -1276,28 +1261,34 @@ def main() -> None:
     parser.add_argument("--batch-prompts", type=int, default=None, help="Max prompts per batched generation call")
     args = parser.parse_args()
 
-    # Load config
-    cfg: Dict[str, Any] = {}
+    # Load centralized configuration using the project's Pydantic schemas
     try:
-        import yaml  # type: ignore
-
-        cfg_path = Path(args.config)
-        if cfg_path.exists():
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
+        from omoai.config.schemas import get_config
     except Exception:
-        cfg = cfg or {}
+        # If running as a script with imports failing, ensure src/ is on sys.path then retry
+        import sys as _sys
+        from pathlib import Path as _Path
+        _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "src"))
+        from omoai.config.schemas import get_config
 
+    cfg = get_config()
+    
     def cfg_get(path: List[str], default: Optional[Any] = None) -> Any:
+        """
+        Access nested fields from the centralized Pydantic config using attribute access.
+        Example: cfg_get(["punctuation", "llm", "model_id"]) -> cfg.punctuation.llm.model_id
+        """
         cur: Any = cfg
         for key in path:
-            if not isinstance(cur, dict) or key not in cur:
+            if cur is None:
                 return default
-            cur = cur[key]
+            if not hasattr(cur, key):
+                return default
+            cur = getattr(cur, key)
         return cur
 
     # Global defaults
-    model_id_from_cfg = cfg_get(["llm", "model_id"])
+    model_id_from_cfg = cfg.llm.model_id
     if model_id_from_cfg is None:
         raise ValueError("model_id not found in configuration. Please ensure it is set in the config file under the 'llm' section.")
     model_id_default = args.model or model_id_from_cfg

@@ -70,7 +70,7 @@ def run_asr(
 
     # Local imports after sys.path adjustment
     try:
-        from chunkformer.omoai import decode as cfdecode  # type: ignore
+        from chunkformer import decode as cfdecode  # type: ignore
         logger.info("Successfully imported chunkformer decode module")
     except ImportError as e:
         logger.error(f"Failed to import chunkformer decode module: {e}")
@@ -84,7 +84,7 @@ def run_asr(
         raise
     
     try:
-        from chunkformer.omoai.model.utils.ctc_utils import (
+        from chunkformer.model.utils.ctc_utils import (
             get_output_with_timestamps,
         )  # type: ignore
         logger.info("Successfully imported ctc_utils")
@@ -320,41 +320,29 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
     
-    # Load config yaml if available
-    cfg: Dict[str, Any] = {}
+    # Load centralized configuration using the project's Pydantic schemas
     try:
-        import yaml  # type: ignore
+        from omoai.config.schemas import get_config
+    except Exception:
+        # If package imports fail (script execution from repo root), add src/ to sys.path and retry
+        import sys as _sys
+        from pathlib import Path as _Path
+        _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "src"))
+        from omoai.config.schemas import get_config
 
-        cfg_path = Path(args.config)
-        logger.info(f"Loading config from: {cfg_path}")
-        logger.info(f"Config file exists: {cfg_path.exists()}")
-        if cfg_path.exists():
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-            logger.info(f"Config loaded: {cfg}")
-    except Exception as e:
-        logger.info(f"Error loading config: {e}")
-        cfg = cfg or {}
+    cfg = get_config()
 
-    def cfg_get(path: List[str], default: Optional[Any] = None) -> Any:
-        cur: Any = cfg
-        for key in path:
-            if not isinstance(cur, dict) or key not in cur:
-                return default
-            cur = cur[key]
-        return cur
-
-    # Resolve parameters with precedence: CLI flag -> config -> fallback default
-    model_dir = args.model_dir or cfg_get(["paths", "chunkformer_checkpoint"], None)
+    # Resolve parameters with precedence: CLI flag -> centralized config (Pydantic defaults applied there)
+    model_dir = args.model_dir or str(cfg.paths.chunkformer_checkpoint)
     if not model_dir:
-        raise SystemExit("Missing --model-dir and paths.chunkformer_checkpoint in config.yaml")
+        raise SystemExit("Missing --model-dir and paths.chunkformer_checkpoint in configuration")
 
     # Auto output dir per input file, if requested
     out_path = Path(args.out)
     if args.auto_outdir:
         from datetime import datetime, timezone
         stem = Path(args.audio).stem
-        base_root = Path(str(cfg_get(["paths", "out_dir"], "data/output")))
+        base_root = cfg.paths.out_dir
         # Timestamp-based folder name, UTC for stability
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         candidate = base_root / f"{stem}-{timestamp}"
@@ -372,15 +360,13 @@ def main() -> None:
         audio_path=Path(args.audio),
         model_checkpoint=Path(model_dir),
         out_path=out_path,
-        total_batch_duration=int(
-            args.total_batch_duration or cfg_get(["asr", "total_batch_duration_s"], 1800)
-        ),
-        chunk_size=int(args.chunk_size or cfg_get(["asr", "chunk_size"], 64)),
-        left_context_size=int(args.left_context_size or cfg_get(["asr", "left_context_size"], 128)),
-        right_context_size=int(args.right_context_size or cfg_get(["asr", "right_context_size"], 128)),
-        device_str=str(args.device or cfg_get(["asr", "device"], "cuda")),
-        autocast_dtype=(args.autocast_dtype or cfg_get(["asr", "autocast_dtype"], None)),
-        chunkformer_dir=Path(args.chunkformer_dir or cfg_get(["paths", "chunkformer_dir"], str(Path(__file__).resolve().parents[1] / "src" / "chunkformer")))
+        total_batch_duration=int(args.total_batch_duration or cfg.asr.total_batch_duration_s),
+        chunk_size=int(args.chunk_size or cfg.asr.chunk_size),
+        left_context_size=int(args.left_context_size or cfg.asr.left_context_size),
+        right_context_size=int(args.right_context_size or cfg.asr.right_context_size),
+        device_str=str(args.device or cfg.asr.device),
+        autocast_dtype=(args.autocast_dtype or cfg.asr.autocast_dtype),
+        chunkformer_dir=Path(args.chunkformer_dir or cfg.paths.chunkformer_dir),
     )
 
 

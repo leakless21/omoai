@@ -66,7 +66,7 @@ punctuation:
     <output>Hôm qua tại Hà Nội, Thủ tướng đã nói: "Chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế."</output>
     </example>
     <policy>
-    ABSOLUTE RULE: Do not delete, replace, or rephrase any words from the original input. Your only task is to add punctuation and capitalization. The original words must be kept exactly as they are.
+    ABSOLUTE RULE: Do not delete any words from the original input. Your only task is to add proper pronunciation, punctuation and capitalization. The original words must be kept presented.
     </policy>
   sampling:
     temperature: 0.0
