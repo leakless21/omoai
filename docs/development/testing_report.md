@@ -48,7 +48,7 @@ During the integration testing phase, a critical bug was identified in the `/pip
 - **Root Cause**: The issue was traced back to a parameter handling error in `src/omoai/api/main_controller.py`.
 - **Resolution**: The code was updated to correctly parse and handle the query parameters, resolving the issue. This fix was validated by the integration test suite.
 
-This issue is documented in [`docs/GAP_ANALYSIS.md`](docs/GAP_ANALYSIS.md).
+This issue has been resolved and documented in the project's technical debt analysis.
 
 ## 6. Conclusion
 

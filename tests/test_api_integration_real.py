@@ -23,8 +23,8 @@ sys.path.insert(0, str(project_root / "src"))
 
 from litestar import Litestar
 from litestar.testing import TestClient
-from src.omoai.api.app import create_app
-from src.omoai.api.config import get_config
+from omoai.api.app import create_app
+from omoai.config import get_config
 
 
 def create_test_wav_file(file_path, duration_seconds=3.0, sample_rate=16000, frequency=440):
@@ -169,7 +169,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
 
     
 
-    @patch('src.omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.run_preprocess_script')
     def test_preprocess_endpoint_with_real_audio(self, mock_run_script):
         """Test preprocess endpoint with real audio file."""
         # Mock the script to simulate successful preprocessing
@@ -198,7 +198,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         # Verify the mock was called
         mock_run_script.assert_called_once()
 
-    @patch('src.omoai.api.services.run_asr_script')
+    @patch('omoai.api.services.run_asr_script')
     def test_asr_endpoint_with_real_audio(self, mock_run_script):
         """Test ASR endpoint with real audio file."""
         # Mock the script to simulate successful ASR processing
@@ -217,7 +217,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         mock_run_script.side_effect = mock_asr
         
         # First, preprocess the audio to get a preprocessed file path
-        with patch('src.omoai.api.services.run_preprocess_script') as mock_preprocess:
+        with patch('omoai.api.services.run_preprocess_script') as mock_preprocess:
             preprocessed_path = self.temp_dir / "preprocessed.wav"
             mock_preprocess.side_effect = lambda input_path, output_path: Path(output_path).touch()
             
@@ -243,7 +243,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         # Verify the mock was called
         mock_run_script.assert_called_once()
 
-    @patch('src.omoai.api.services.run_postprocess_script')
+    @patch('omoai.api.services.run_postprocess_script')
     def test_postprocess_endpoint_with_real_data(self, mock_run_script):
         """Test postprocess endpoint with realistic ASR data."""
         # Mock the script to simulate successful post-processing
@@ -290,9 +290,9 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         # Verify the mock was called
         mock_run_script.assert_called_once()
 
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.run_asr_script')
-    @patch('src.omoai.api.services.run_postprocess_script')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.run_asr_script')
+    @patch('omoai.api.services.run_postprocess_script')
     def test_full_pipeline_endpoint_with_real_audio(self, mock_postprocess, mock_asr, mock_preprocess):
         """Test full pipeline endpoint with real audio file."""
         # Mock preprocessing
@@ -361,9 +361,9 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         mock_asr.assert_called_once()
         mock_postprocess.assert_called_once()
 
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.run_asr_script')
-    @patch('src.omoai.api.services.run_postprocess_script')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.run_asr_script')
+    @patch('omoai.api.services.run_postprocess_script')
     def test_full_pipeline_with_output_parameters(self, mock_postprocess, mock_asr, mock_preprocess):
         """Test full pipeline with output parameters."""
         # Mock preprocessing
@@ -429,7 +429,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         self.assertNotIn("abstract", data["summary"])  # Only bullets kept
         self.assertEqual(len(data["segments"]), 3)  # Segments included
 
-    @patch('src.omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.run_preprocess_script')
     def test_preprocess_with_vietnamese_audio(self, mock_run_script):
         """Test preprocessing with Vietnamese audio characteristics."""
         def mock_preprocess(input_path, output_path):
@@ -478,7 +478,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         # Should return an error
         self.assertIn(response.status_code, [400, 422])
 
-    @patch('src.omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.run_preprocess_script')
     def test_error_handling_preprocess_failure(self, mock_run_script):
         """Test error handling when preprocessing fails."""
         # Mock the script to raise an exception

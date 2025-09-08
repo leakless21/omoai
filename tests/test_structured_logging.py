@@ -18,7 +18,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
 
-from src.omoai.logging import (
+from omoai.logging_system import (
     get_logger, setup_logging, log_performance, log_error,
     performance_context, timed, JSONFormatter, StructuredFormatter,
     LoggingConfig, get_logging_config, get_performance_logger
@@ -241,7 +241,7 @@ class TestPerformanceLogging(unittest.TestCase):
     
     def test_performance_context_manager(self):
         """Test performance context manager."""
-        with patch('src.omoai.logging.logger.log_performance') as mock_log:
+        with patch('omoai.logging_system.logger.log_performance') as mock_log:
             with performance_context("test_context", logger=self.logger):
                 time.sleep(0.01)  # Small delay
         
@@ -257,7 +257,7 @@ class TestPerformanceLogging(unittest.TestCase):
             time.sleep(0.01)
             return x + y
         
-        with patch('src.omoai.logging.logger.log_performance') as mock_log:
+        with patch('omoai.logging_system.logger.log_performance') as mock_log:
             result = test_function(1, 2)
         
         self.assertEqual(result, 3)
@@ -347,7 +347,7 @@ class TestMetricsCollection(unittest.TestCase):
     
     def test_metrics_collector_basic(self):
         """Test basic metrics collection."""
-        from src.omoai.logging.metrics import MetricsCollector
+        from omoai.logging_system.metrics import MetricsCollector
         
         collector = MetricsCollector()
         
@@ -368,7 +368,7 @@ class TestMetricsCollection(unittest.TestCase):
     
     def test_system_health_monitoring(self):
         """Test system health monitoring."""
-        from src.omoai.logging.metrics import MetricsCollector
+        from omoai.logging_system.metrics import MetricsCollector
         
         collector = MetricsCollector()
         
@@ -383,7 +383,7 @@ class TestMetricsCollection(unittest.TestCase):
     
     def test_performance_report_generation(self):
         """Test performance report generation."""
-        from src.omoai.logging.metrics import MetricsCollector
+        from omoai.logging_system.metrics import MetricsCollector
         
         collector = MetricsCollector()
         
@@ -469,7 +469,7 @@ class TestLoggingIntegration(unittest.TestCase):
     
     def test_request_id_tracing(self):
         """Test request ID tracing functionality."""
-        from src.omoai.logging.logger import with_request_context, generate_request_id
+        from omoai.logging_system.logger import with_request_context, generate_request_id
         
         # Generate request ID
         request_id = generate_request_id()

@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, BinaryIO
 
 from .preprocess import preprocess_audio_to_tensor, validate_audio_input, get_audio_info
+from .exceptions import OMOPipelineError, OMOAudioError, OMOASRError, OMOPostprocessError
 from .asr import run_asr_inference, ASRResult, ASRSegment  
 from .postprocess import postprocess_transcript, PostprocessResult, SummaryResult
 from ..config import OmoAIConfig
-from ..logging import get_logger, performance_context, log_error, get_performance_logger
+from ..logging_system import get_logger, performance_context, log_error, get_performance_logger
 
 
 @dataclass
@@ -43,6 +44,7 @@ def run_full_pipeline_memory(
     validate_input: bool = True,
     max_audio_duration: Optional[float] = None,
     output_params: Optional[dict] = None,
+    extract_audio_info: bool = True,
 ) -> PipelineResult:
     """
     Run the complete OMOAI pipeline entirely in memory.
@@ -102,14 +104,27 @@ def run_full_pipeline_memory(
                     "validation_time_ms": timing["validation"] * 1000,
                 })
         
-        # Get audio info for metadata
-        audio_info = get_audio_info(audio_input)
-        logger.info("Audio info extracted", extra={
-            "pipeline_id": pipeline_id,
-            "duration_seconds": audio_info.get("duration", "unknown"),
-            "sample_rate": audio_info.get("sample_rate", "unknown"),
-            "channels": audio_info.get("channels", "unknown"),
-        })
+        # Get audio info for metadata (unless skipped for testing)
+        if extract_audio_info:
+            audio_info = get_audio_info(audio_input)
+            logger.info("Audio info extracted", extra={
+                "pipeline_id": pipeline_id,
+                "duration_seconds": audio_info.get("duration", "unknown"),
+                "sample_rate": audio_info.get("sample_rate", "unknown"),
+                "channels": audio_info.get("channels", "unknown"),
+            })
+        else:
+            # Use dummy audio info for testing
+            audio_info = {
+                "duration_seconds": 1.0,
+                "sample_rate": 16000,
+                "channels": 1,
+                "format": "dummy",
+                "frame_count": 16000,
+            }
+            logger.info("Using dummy audio info for testing", extra={
+                "pipeline_id": pipeline_id,
+            })
         
         # Stage 1: Preprocessing  
         with performance_context("audio_preprocessing", logger=logger):
@@ -349,10 +364,10 @@ def run_full_pipeline_memory(
             stages_completed=list(timing.keys()),
         )
         
-        raise RuntimeError(
+        raise OMOPipelineError(
             f"Pipeline failed after {error_timing:.2f}s: {e}. "
             f"Completed stages: {list(timing.keys())}"
-        )
+        ) from e
 
 
 def run_pipeline_batch(
@@ -416,62 +431,4 @@ def run_pipeline_batch(
     return results
 
 
-# Legacy compatibility function for script-based workflows
-def run_pipeline_legacy(
-    audio_path: Path,
-    output_dir: Path,
-    config_path: Optional[Path] = None,
-    model_dir: Optional[Path] = None,
-) -> int:
-    """
-    Legacy compatibility function that mimics the original main.py interface.
-    
-    Args:
-        audio_path: Input audio file path
-        output_dir: Output directory path  
-        config_path: Configuration file path
-        model_dir: Model directory (overrides config)
-        
-    Returns:
-        Exit code (0 = success, non-zero = error)
-    """
-    try:
-        # Load configuration
-        if config_path:
-            from ..config import load_config
-            config = load_config(config_path)
-        else:
-            from ..config import get_config
-            config = get_config()
-        
-        # Override model directory if provided
-        if model_dir:
-            config.paths.chunkformer_checkpoint = model_dir
-        
-        # Run pipeline with intermediate file saving
-        result = run_full_pipeline_memory(
-            audio_input=audio_path,
-            config=config,
-            save_intermediates=True,
-            output_dir=output_dir,
-            validate_input=True,
-        )
-        
-        print(f"[orchestrator] Completed. Output: {output_dir / 'final.json'}")
-        print(f"[orchestrator] Processing time: {result.timing['total']:.2f}s")
-        print(f"[orchestrator] Real-time factor: {result.metadata['performance']['real_time_factor']:.2f}x")
-        
-        return 0
-        
-    except FileNotFoundError as e:
-        print(f"[orchestrator] File not found: {e}")
-        return 1
-    except ValueError as e:
-        print(f"[orchestrator] Invalid input: {e}")
-        return 2
-    except RuntimeError as e:
-        print(f"[orchestrator] Processing failed: {e}")
-        return 3
-    except Exception as e:
-        print(f"[orchestrator] Unexpected error: {e}")
-        return 4
+

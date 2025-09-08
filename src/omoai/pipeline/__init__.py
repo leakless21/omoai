@@ -24,7 +24,15 @@ from .pipeline import (
     run_full_pipeline_memory, 
     PipelineResult,
     run_pipeline_batch,
-    run_pipeline_legacy,
+)
+from .exceptions import (
+    OMOPipelineError,
+    OMOAudioError,
+    OMOASRError,
+    OMOPostprocessError,
+    OMOConfigError,
+    OMOModelError,
+    OMOIOError,
 )
 
 __all__ = [
@@ -52,5 +60,13 @@ __all__ = [
     "run_full_pipeline_memory",
     "PipelineResult",
     "run_pipeline_batch",
-    "run_pipeline_legacy",
+    
+    # Exceptions
+    "OMOPipelineError",
+    "OMOAudioError",
+    "OMOASRError",
+    "OMOPostprocessError",
+    "OMOConfigError",
+    "OMOModelError",
+    "OMOIOError",
 ]

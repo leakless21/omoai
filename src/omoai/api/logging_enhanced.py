@@ -10,8 +10,8 @@ from typing import Any, Dict, Optional
 from litestar import Request, Response
 from litestar.logging.config import LoggingConfig as LitestarLoggingConfig
 
-from ..logging import get_logger, setup_logging, get_logging_config, JSONFormatter, StructuredFormatter
-from ..logging.middleware import RequestLoggingMiddleware
+from ..logging_system import get_logger, setup_logging, get_logging_config, JSONFormatter, StructuredFormatter
+from ..logging_system.middleware import RequestLoggingMiddleware
 
 
 def create_enhanced_logging_config() -> LitestarLoggingConfig:
@@ -77,7 +77,7 @@ def create_enhanced_logging_config() -> LitestarLoggingConfig:
 
 def get_request_logger(request: Request) -> Any:
     """Get a request-specific logger with context."""
-    from ..logging import LoggerAdapter
+    from ..logging_system import LoggerAdapter
     
     base_logger = get_logger("omoai.api.request")
     
@@ -113,7 +113,7 @@ def log_request_end(
     logger = get_request_logger(request)
     
     if error:
-        from ..logging import log_error
+        from ..logging_system import log_error
         log_error(
             message=f"Request failed: {request.method} {request.url.path}",
             error=error,
@@ -147,7 +147,7 @@ class APIRequestLogger:
     
     def __init__(self):
         self.logger = get_logger("omoai.api")
-        from ..logging import get_performance_logger
+        from ..logging_system import get_performance_logger
         self.perf_logger = get_performance_logger()
     
     def log_endpoint_access(

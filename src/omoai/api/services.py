@@ -19,9 +19,64 @@ from omoai.api.models import (
     PostprocessResponse,
     OutputFormatParams
 )
-from omoai.api.scripts.preprocess_wrapper import run_preprocess_script
-from omoai.api.scripts.asr_wrapper import run_asr_script
-from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
+# Legacy script imports - REMOVED
+# These functions have been migrated to the pipeline modules.
+# This module is deprecated and should not be used in production.
+# Use services_v2.py or services_enhanced.py instead which use the pipeline directly.
+
+# Temporary fallback implementations for when CUDA models fail to load
+
+def run_preprocess_script(input_path, output_path):
+    """Fallback preprocess implementation using ffmpeg directly."""
+    import subprocess
+    cmd = [
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-ac", "1", "-ar", "16000", "-vn", "-c:a", "pcm_s16le",
+        str(output_path)
+    ]
+    subprocess.run(cmd, check=True)
+
+def run_asr_script(audio_path, output_path, config_path=None):
+    """Fallback ASR implementation using subprocess call to legacy script."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    # Get project root - go up from src/omoai/api/services.py to project root
+    project_root = Path(__file__).resolve().parents[3]
+    
+    cmd = [sys.executable, "-m", "scripts.asr", "--audio", str(audio_path), "--out", str(output_path)]
+    if config_path:
+        cmd.extend(["--config", str(config_path)])
+    
+    # Enhanced logging for debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"ASR command: {' '.join(cmd)}")
+    logger.info(f"Working directory: {project_root}")
+    
+    subprocess.run(cmd, check=True, cwd=project_root)
+
+def run_postprocess_script(asr_json_path, output_path, config_path=None):
+    """Fallback postprocess implementation using subprocess call to legacy script.""" 
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    # Get project root - go up from src/omoai/api/services.py to project root  
+    project_root = Path(__file__).resolve().parents[3]
+    
+    cmd = [sys.executable, "-m", "scripts.post", "--asr-json", str(asr_json_path), "--out", str(output_path)]
+    if config_path:
+        cmd.extend(["--config", str(config_path)])
+    
+    # Enhanced logging for debugging
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Postprocess command: {' '.join(cmd)}")
+    logger.info(f"Working directory: {project_root}")
+    
+    subprocess.run(cmd, check=True, cwd=project_root)
 
 # Compatibility alias: some tests import modules under the "src.omoai" package path.
 # Ensure this module object is also available under that name so patches target the same object.

@@ -180,9 +180,7 @@ api:
   temp_dir: "/tmp"
   cleanup_temp_files: true
   enable_progress_output: true
-  service_mode: "memory"
+  service_mode: "script"
   health_check_dependencies:
     - ffmpeg
     - config_file
-    - asr_script
-    - postprocess_script

@@ -1,11 +1,53 @@
-# OMOAI Documentation
+# OmoAI Documentation Hub
 
-Welcome to the OMOAI documentation. This documentation is organized into the following sections:
+Welcome to the documentation for OmoAI, a modern speech recognition and processing pipeline.
 
-- **[Architecture](architecture/index.md):** Detailed system architecture and component interactions.
-- **[User Guide](user_guide/index.md):** Instructions on how to use the API and CLI.
-- **[Configuration](user_guide/configuration.md):** Guide to configuring the pipeline.
-- **[Development](development/best_practices.md):** Best practices for development and post-processing scripts.
-- **[Project](project/requirements.md):** Project requirements and gap analysis.
+## 📖 Essential Documentation
 
-The `Chunkformer` model has its own detailed `README.md` located in `src/chunkformer/README.md`.
+- **[Migration Guide](./migration_guide.md)** - Migrating from legacy scripts to new pipeline modules
+- **[Final Summary](./final_summary.md)** - Complete refactor summary and achievements
+
+## 🏗️ Architecture & Development
+
+- **[Architecture Overview](./architecture/overview.md)** - System architecture and design
+- **[Development Guide](./development/development_guide.md)** - Contributing and development setup
+- **[Testing Report](./development/testing_report.md)** - Test coverage and quality metrics
+
+## 📋 Project Status
+
+- **[COMPLETED.md](../COMPLETED.md)** - Project completion status and achievements
+
+---
+
+## 📂 Streamlined Directory Structure
+
+```
+docs/
+├── README.md                    # This documentation hub
+├── migration_guide.md           # Migration from legacy scripts
+├── final_summary.md             # Complete refactor summary
+├── architecture/
+│   └── overview.md             # System architecture
+├── development/
+│   ├── development_guide.md    # Development setup
+│   └── testing_report.md       # Test coverage
+└── user_guide/
+    └── usage_examples.md       # Usage examples
+```
+
+## 🎯 Key Achievements
+
+✅ **Modern Pipeline Architecture** - Clean separation of concerns with modular design  
+✅ **Configuration Standardization** - Unified OmoAIConfig across all modules  
+✅ **Custom Exception Handling** - Comprehensive error handling system  
+✅ **Legacy Script Archival** - Clean migration from legacy implementations  
+✅ **Test Suite Modernization** - Updated tests for new architecture  
+✅ **Performance Optimization** - Centralized memory management and debugging  
+✅ **Documentation Consolidation** - Streamlined, organized documentation  
+
+## 📞 Support
+
+For questions or issues:
+- Check the [Migration Guide](./migration_guide.md) for transition help
+- Review the [Final Summary](./final_summary.md) for technical details
+- See [Development Guide](./development/development_guide.md) for contribution guidelines

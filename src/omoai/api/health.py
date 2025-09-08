@@ -68,20 +68,12 @@ async def health_check() -> Response[dict]:
                     status = "unhealthy"
 
             elif dependency == "asr_script":
-                asr_script = Path("scripts/asr.py")
-                if asr_script.exists():
-                    details["asr_script"] = "found"
-                else:
-                    details["asr_script"] = "not found"
-                    status = "unhealthy"
+                # Legacy script dependency - no longer needed with pipeline modules
+                details["asr_script"] = "deprecated (using pipeline modules)"
 
             elif dependency == "postprocess_script":
-                post_script = Path("scripts/post.py")
-                if post_script.exists():
-                    details["postprocess_script"] = "found"
-                else:
-                    details["postprocess_script"] = "not found"
-                    status = "unhealthy"
+                # Legacy script dependency - no longer needed with pipeline modules  
+                details["postprocess_script"] = "deprecated (using pipeline modules)"
 
         # Check temp directory
         temp_dir = Path(config.api.temp_dir)

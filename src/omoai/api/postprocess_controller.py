@@ -101,15 +101,20 @@ class PostprocessModel:
                 "summary": {"bullets": [], "abstract": ""}
             }
 
-        # Import functions from scripts/post.py with a project-root sys.path for static analyzers and runtime
-        sys.path.insert(0, str(Path(__file__).parents[3]))
-        from scripts.post import (
-            punctuate_text_with_splitting,
-            summarize_long_text_map_reduce,
-            join_punctuated_segments,
-            _segmentwise_punctuate_segments,
-            _safe_distribute_punct_to_segments,
-        )
+        # DEPRECATED: Import functions from archived legacy scripts  
+        # This should be migrated to use pipeline modules directly
+        archive_path = Path(__file__).parents[3] / "archive" / "legacy_scripts"
+        sys.path.insert(0, str(archive_path))
+        try:
+            from post import (
+                punctuate_text_with_splitting,
+                summarize_long_text_map_reduce,
+                join_punctuated_segments,
+                _segmentwise_punctuate_segments,
+                _safe_distribute_punct_to_segments,
+            )
+        except ImportError:
+            raise RuntimeError("Legacy postprocess functions not available. This controller is deprecated. Use services_enhanced.py instead.")
 
         # Add punctuation to transcript using enhanced alignment
         # First, punctuate individual segments (segment-wise for throughput)

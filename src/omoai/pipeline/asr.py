@@ -4,21 +4,25 @@ In-memory ASR inference for OMOAI using ChunkFormer.
 This module provides efficient ASR processing that works with tensors and
 returns structured data without intermediate file I/O.
 """
-import os
-import sys
+import io
+import subprocess
+import tempfile
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, BinaryIO
 
 import torch
 import numpy as np
 from pydub import AudioSegment  # type: ignore
-import logging
 
 from ..config import OmoAIConfig, ASRConfig
+from ..logging_system import get_logger, performance_context, log_error, get_performance_logger
+from .exceptions import OMOASRError, OMOConfigError, OMOModelError
 
 # Module logger
-logger = logging.getLogger("omoai.pipeline.asr")
+logger = get_logger("omoai.pipeline.asr")
 
 
 @dataclass
@@ -47,19 +51,16 @@ class ChunkFormerASR:
         self,
         model_checkpoint: Union[Path, str],
         device: Optional[Union[str, torch.device]] = None,
-        chunkformer_dir: Optional[Union[Path, str]] = None,
     ):
         """
         Initialize ChunkFormer ASR engine.
         
         Args:
-            model_checkpoint: Path to ChunkFormer checkpoint
+            model_checkpoint: Path to ChunkFormer model checkpoint
             device: Target device (auto-detect if None)
-            chunkformer_dir: Path to ChunkFormer source (for imports)
         """
         self.model_checkpoint = Path(model_checkpoint)
         self.device = self._resolve_device(device)
-        self.chunkformer_dir = Path(chunkformer_dir) if chunkformer_dir else None
         
         # Model components (loaded lazily)
         self.model = None
@@ -74,33 +75,26 @@ class ChunkFormerASR:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         return torch.device(device)
     
-    def _ensure_chunkformer_path(self) -> None:
-        """Add ChunkFormer to Python path if needed."""
-        if self.chunkformer_dir and str(self.chunkformer_dir) not in sys.path:
-            sys.path.insert(0, str(self.chunkformer_dir))
-    
     def initialize(self) -> None:
         """Initialize the model (lazy loading)."""
         if self._is_initialized:
             return
         
-        self._ensure_chunkformer_path()
-        
         try:
             # Import ChunkFormer components
-            from omoai.chunkformer import decode as cfdecode  # type: ignore
+            from chunkformer import decode as cfdecode  # type: ignore
             
             # Initialize model
             self.model, self.char_dict = cfdecode.init(str(self.model_checkpoint), self.device)
             self._is_initialized = True
             
         except ImportError as e:
-            raise ImportError(
+            raise OMOModelError(
                 f"Failed to import ChunkFormer components. "
-                f"Ensure chunkformer_dir is correct: {self.chunkformer_dir}. Error: {e}"
-            )
+                f"Ensure ChunkFormer is properly installed. Error: {e}"
+            ) from e
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize ChunkFormer model: {e}")
+            raise OMOASRError(f"Failed to initialize ChunkFormer model: {e}") from e
     
     def process_tensor(
         self,
@@ -145,13 +139,13 @@ class ChunkFormerASR:
 
         # Import dependencies
         import torchaudio.compliance.kaldi as kaldi  # type: ignore
-        from omoai.chunkformer.model.utils.ctc_utils import get_output_with_timestamps  # type: ignore
+        from chunkformer.model.utils.ctc_utils import get_output_with_timestamps  # type: ignore
 
         # Validate input
         if audio_tensor.dim() == 1:
             audio_tensor = audio_tensor.unsqueeze(0)  # Add batch dimension
         elif audio_tensor.dim() != 2 or audio_tensor.size(0) != 1:
-            raise ValueError(f"Expected audio tensor of shape (1, samples), got {audio_tensor.shape}")
+            raise OMOAudioError(f"Expected audio tensor of shape (1, samples), got {audio_tensor.shape}")
 
         audio_duration_s = audio_tensor.size(1) / sample_rate
         
@@ -313,170 +307,184 @@ class ChunkFormerASR:
 
 
 def run_asr_inference(
-    audio_input: Union[torch.Tensor, np.ndarray, bytes, Path, str],
+    audio_input: Union[torch.Tensor, np.ndarray, bytes, Path, str, BinaryIO],
     config: Optional[Union[OmoAIConfig, ASRConfig, Dict[str, Any]]] = None,
     model_checkpoint: Optional[Union[Path, str]] = None,
+    sample_rate: int = 16000,
     device: Optional[Union[str, torch.device]] = None,
-    **kwargs
+    **kwargs,
 ) -> ASRResult:
     """
     Run ASR inference on audio input with flexible configuration.
     
     Args:
-        audio_input: Audio data (tensor, array, bytes, or file path)
-        config: Configuration object or dict
-        model_checkpoint: Model path (overrides config)
-        device: Target device (overrides config)
-        **kwargs: Additional ASR parameters
+        audio_input: Audio data (tensor, array, bytes, path, or file-like object)
+        config: Configuration object or dict (loads default if None)
+        model_checkpoint: Model checkpoint path (overrides config)
+        sample_rate: Audio sample rate (should be 16kHz)
+        device: Target device (auto-detect if None)
+        **kwargs: Additional ASR parameters (chunk_size, left_context_size, etc.)
         
     Returns:
         ASRResult with segments and transcript
         
     Raises:
-        ValueError: If input is invalid or config is missing required fields
-        RuntimeError: If ASR processing fails
+        OMOASRError: If ASR processing fails
+        OMOConfigError: If configuration is invalid
+        OMOModelError: If model loading fails
+        ValueError: If input is invalid
     """
-    # Handle configuration
-    if config is None:
-        from ..config import get_config
-        config = get_config()
+    # Initialize logging
+    logger = get_logger("omoai.pipeline.asr")
+    perf_logger = get_performance_logger()
     
-    if isinstance(config, dict):
-        # Extract ASR config from dict
-        asr_config = config.get("asr", {})
-        paths_config = config.get("paths", {})
-        model_checkpoint = model_checkpoint or paths_config.get("chunkformer_checkpoint")
-        chunkformer_dir = paths_config.get("chunkformer_dir")
-    elif isinstance(config, OmoAIConfig):
-        asr_config = config.asr
-        model_checkpoint = model_checkpoint or config.paths.chunkformer_checkpoint
-        chunkformer_dir = config.paths.chunkformer_dir
-    elif isinstance(config, ASRConfig):
-        asr_config = config
+    # Generate unique ASR ID for tracing
+    asr_id = str(uuid.uuid4())
+    
+    logger.info("Starting ASR inference", extra={
+        "asr_id": asr_id,
+        "input_type": type(audio_input).__name__,
+        "model_checkpoint": str(model_checkpoint) if model_checkpoint else "from_config",
+        "sample_rate": sample_rate,
+        "device": str(device) if device else "auto",
+        "kwargs": kwargs,
+    })
+    
+    timing = {}
+    start_time = time.time()
+    
+    try:
+        # Handle configuration
+        if config is None:
+            from ..config import get_config
+            config = get_config()
+        
+        # Convert dict to OmoAIConfig if needed
+        if isinstance(config, dict):
+            from ..config import OmoAIConfig
+            try:
+                config = OmoAIConfig(**config)
+            except Exception as e:
+                raise OMOConfigError(f"Failed to convert dict to OmoAIConfig: {e}") from e
+        
+        # Extract ASR configuration
+        if isinstance(config, OmoAIConfig):
+            asr_config = config.asr
+            model_checkpoint = model_checkpoint or config.paths.chunkformer_checkpoint
+        elif isinstance(config, ASRConfig):
+            asr_config = config
+            if not model_checkpoint:
+                raise OMOConfigError("model_checkpoint is required when using ASRConfig directly")
+        else:
+            raise OMOConfigError(f"Unsupported config type: {type(config)}")
+        
         if not model_checkpoint:
-            raise ValueError("model_checkpoint is required when using ASRConfig directly")
-        chunkformer_dir = None
-    else:
-        raise ValueError(f"Unsupported config type: {type(config)}")
-    
-    if not model_checkpoint:
-        raise ValueError("model_checkpoint not found in configuration")
-    
-    # Prepare ASR parameters
-    asr_params = {
-        "chunk_size": getattr(asr_config, "chunk_size", 64),
-        "left_context_size": getattr(asr_config, "left_context_size", 128),
-        "right_context_size": getattr(asr_config, "right_context_size", 128),
-        "total_batch_duration_s": getattr(asr_config, "total_batch_duration_s", 1800),
-        "autocast_dtype": getattr(asr_config, "autocast_dtype", "fp16"),
-    }
-
-    # Diagnostic: check if caller passed sample_rate via kwargs which would be merged into asr_params
-    sample_rate_override = kwargs.get("sample_rate", None)
-    logger.debug(
-        "Preparing ASR params | initial_keys=%s kwargs_keys=%s sample_rate_override=%s",
-        list(asr_params.keys()),
-        list(kwargs.keys()),
-        sample_rate_override,
-    )
-
-    # Merge overrides, then ensure sample_rate is not present in asr_params to avoid duplicate keyword error
-    asr_params.update(kwargs)  # Allow parameter overrides
-    removed_sample_rate = asr_params.pop("sample_rate", None)
-    if removed_sample_rate is not None:
-        logger.debug("Removed duplicate 'sample_rate' from asr_params (value=%s) to avoid TypeError", removed_sample_rate)
-    
-    # Initialize ASR engine
-    asr_device = device or getattr(asr_config, "device", "auto")
-    engine = ChunkFormerASR(
-        model_checkpoint=model_checkpoint,
-        device=asr_device,
-        chunkformer_dir=chunkformer_dir,
-    )
-    
-    # Process different input types
-    if isinstance(audio_input, torch.Tensor):
-        # Direct tensor input
-        sample_rate = kwargs.pop("sample_rate", 16000)  # Remove from kwargs to avoid duplicate
-        return engine.process_tensor(audio_input, sample_rate=sample_rate, **asr_params)
+            raise OMOConfigError("model_checkpoint not found in configuration")
         
-    elif isinstance(audio_input, np.ndarray):
-        # Convert numpy array to tensor
-        audio_tensor = torch.from_numpy(audio_input.astype(np.float32))
-        if audio_tensor.dim() == 1:
-            audio_tensor = audio_tensor.unsqueeze(0)
-        sample_rate = kwargs.pop("sample_rate", 16000)  # Remove from kwargs to avoid duplicate
-        return engine.process_tensor(audio_tensor, sample_rate=sample_rate, **asr_params)
+        # Prepare ASR parameters
+        asr_params = {
+            "chunk_size": kwargs.get("chunk_size", asr_config.chunk_size),
+            "left_context_size": kwargs.get("left_context_size", asr_config.left_context_size),
+            "right_context_size": kwargs.get("right_context_size", asr_config.right_context_size),
+            "total_batch_duration_s": kwargs.get("total_batch_duration_s", asr_config.total_batch_duration_s),
+            "autocast_dtype": kwargs.get("autocast_dtype", asr_config.autocast_dtype),
+            "device_str": kwargs.get("device", asr_config.device),
+        }
         
-    else:
-        # File path or bytes - need preprocessing
-        from .preprocess import preprocess_audio_to_tensor
+        # Initialize ASR engine
+        with performance_context("asr_initialization", logger=logger):
+            init_start = time.time()
+            engine = ChunkFormerASR(
+                model_checkpoint=model_checkpoint,
+                device=device or asr_config.device,
+            )
+            engine.initialize()
+            timing["initialization"] = time.time() - init_start
+            
+            logger.debug("ASR engine initialized", extra={
+                "asr_id": asr_id,
+                "initialization_time_ms": timing["initialization"] * 1000,
+                "model_checkpoint": str(model_checkpoint),
+                "device": str(engine.device),
+            })
         
-        audio_tensor, sample_rate = preprocess_audio_to_tensor(
-            audio_input, 
-            target_sample_rate=16000,
-            return_sample_rate=True
+        # Process audio
+        with performance_context("asr_processing", logger=logger):
+            process_start = time.time()
+            result = engine.process_tensor(
+                audio_input=audio_input,
+                sample_rate=sample_rate,
+                **asr_params,
+            )
+            timing["processing"] = time.time() - process_start
+            
+            logger.info("ASR processing completed", extra={
+                "asr_id": asr_id,
+                "processing_time_ms": timing["processing"] * 1000,
+                "segments_count": len(result.segments),
+                "transcript_length": len(result.transcript),
+                "audio_duration_seconds": result.audio_duration_seconds,
+                "sample_rate": result.sample_rate,
+                "confidence_avg": sum(seg.confidence or 0 for seg in result.segments) / len(result.segments) if result.segments else 0,
+            })
+        
+        # Calculate total timing
+        timing["total"] = time.time() - start_time
+        
+        # Log performance metrics
+        perf_logger.log_operation(
+            operation="asr_inference",
+            duration_ms=timing["total"] * 1000,
+            success=True,
+            asr_id=asr_id,
+            stages_count=len(timing),
+            audio_duration_seconds=result.audio_duration_seconds,
+            real_time_factor=timing["total"] / result.audio_duration_seconds if result.audio_duration_seconds > 0 else 0,
         )
-        return engine.process_tensor(audio_tensor, sample_rate=sample_rate, **asr_params)
+        
+        logger.info("ASR inference completed successfully", extra={
+            "asr_id": asr_id,
+            "total_time_ms": timing["total"] * 1000,
+            "stages_completed": list(timing.keys()),
+            "performance_breakdown": {k: round(v * 1000, 2) for k, v in timing.items()},
+            "real_time_factor_total": timing["total"] / result.audio_duration_seconds if result.audio_duration_seconds > 0 else 0,
+            "final_transcript_length": len(result.transcript),
+            "segments_count": len(result.segments),
+        })
+        
+        return result
+        
+    except Exception as e:
+        # Enhanced error reporting with timing info
+        error_timing = time.time() - start_time
+        
+        # Log detailed error information
+        log_error(
+            message=f"ASR failed after {error_timing:.2f}s",
+            error=e,
+            error_type="ASR_FAILURE",
+            error_code="ASR_001",
+            remediation="Check input validity, configuration, and model availability",
+            logger=logger,
+            asr_id=asr_id,
+            stages_completed=list(timing.keys()),
+            error_timing_seconds=error_timing,
+        )
+        
+        # Record failed operation
+        perf_logger.log_operation(
+            operation="asr_inference",
+            duration_ms=error_timing * 1000,
+            success=False,
+            error_type="ASR_FAILURE",
+            asr_id=asr_id,
+            stages_completed=list(timing.keys()),
+        )
+        
+        raise OMOASRError(
+            f"ASR failed after {error_timing:.2f}s: {e}. "
+            f"Completed stages: {list(timing.keys())}"
+        ) from e
 
 
-# Legacy compatibility function for scripts
-def run_asr_from_config(
-    audio_path: Path,
-    model_checkpoint: Path,
-    out_path: Path,
-    total_batch_duration: int,
-    chunk_size: int,
-    left_context_size: int,
-    right_context_size: int,
-    device_str: str,
-    autocast_dtype: Optional[str],
-    chunkformer_dir: Path,
-) -> None:
-    """
-    Legacy compatibility function that mimics the original script interface.
-    
-    This function processes audio and saves results to JSON, maintaining
-    compatibility with existing script-based workflows.
-    """
-    import json
-    
-    # Convert parameters to new format
-    asr_config = {
-        "chunk_size": chunk_size,
-        "left_context_size": left_context_size, 
-        "right_context_size": right_context_size,
-        "total_batch_duration_s": total_batch_duration,
-        "autocast_dtype": autocast_dtype,
-        "device": device_str,
-    }
-    
-    # Run inference
-    result = run_asr_inference(
-        audio_input=audio_path,
-        config={"asr": asr_config, "paths": {"chunkformer_checkpoint": model_checkpoint, "chunkformer_dir": chunkformer_dir}},
-    )
-    
-    # Convert to legacy format
-    legacy_output = {
-        "audio": {
-            "sr": result.sample_rate,
-            "path": str(audio_path.resolve()),
-            "duration_s": result.audio_duration_seconds,
-        },
-        "segments": [
-            {
-                "start": seg.start,
-                "end": seg.end,
-                "text_raw": seg.text,
-            }
-            for seg in result.segments
-        ],
-        "transcript_raw": result.transcript,
-        "metadata": result.metadata,
-    }
-    
-    # Save to file
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(legacy_output, f, ensure_ascii=False, indent=2)
+

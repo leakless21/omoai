@@ -171,20 +171,23 @@ data/output/my_episode-20250101-120000/
 └── summary.txt         # if write_separate_files: true
 ```
 
-### Stage-by-stage scripts
+### Stage-by-stage processing
 
 ```bash
-# 1) Preprocess
-uv run python scripts/preprocess.py --input data/input/a.mp3 --output data/output/a.wav
+# Using the main CLI (recommended approach)
+uv run start data/input/your_audio.mp3
 
-# 2) ASR (writes asr.json; --auto-outdir creates a per-run folder)
-uv run python scripts/asr.py --config config.yaml --audio data/output/a.wav \
-  --model-dir models/chunkformer/chunkformer-large-vie --out data/output/asr.json --auto-outdir
-
-# 3) Post-process (writes final.json; reuses ASR folder when --auto-outdir)
-uv run python scripts/post.py --config config.yaml --asr-json data/output/.../asr.json \
-  --out data/output/final.json --auto-outdir
+# Or using the Python module interface for more control
+python -c "
+from omoai.pipeline import run_full_pipeline_memory
+result = run_full_pipeline_memory('data/input/your_audio.mp3')
+print(f'Transcript: {result.transcript_punctuated}')
+"
 ```
+
+### Legacy script usage (deprecated)
+
+The legacy standalone scripts have been archived to `archive/legacy_scripts/` and are no longer maintained. Please use the new pipeline modules instead. See `docs/migration_guide.md` for details on how to migrate.
 
 ## REST API
 
@@ -193,7 +196,7 @@ Start the server:
 ```bash
 uv run api
 # or
-uv run litestar --app src.omoai.api.app:app run --host 0.0.0.0 --port 8000
+uv run litestar --app omoai.api.app:app run --host 0.0.0.0 --port 8000
 ```
 
 Endpoints:
@@ -273,10 +276,11 @@ uv run pytest
 ├── config.yaml
 ├── data/
 ├── models/
-├── scripts/
-│   ├── preprocess.py
-│   ├── asr.py
-│   └── post.py
+├── archive/
+│   └── legacy_scripts/
+│       ├── preprocess.py
+│       ├── asr.py
+│       └── post.py
 ├── src/
 │   ├── chunkformer/
 │   └── omoai/
@@ -293,13 +297,21 @@ uv run pytest
 
 ## Documentation
 
-- `docs/architecture/index.md` - Overall architecture overview
-- `docs/architecture/punctuation.md` - Enhanced punctuation alignment details
-- `docs/USAGE.md` - Comprehensive usage guide
-- `docs/user_guide/configuration.md` - Configuration reference
-- `docs/development/best_practices.md` - Development guidelines
-- `docs/project/requirements.md` - Project requirements
-- `docs/README.md` - Documentation overview
+📖 **[Documentation Hub](docs/README.md)** - Streamlined documentation portal
+
+### Essential Docs
+- **[Migration Guide](docs/migration_guide.md)** - Migrating from legacy scripts
+- **[Final Summary](docs/final_summary.md)** - Complete refactor summary and achievements
+- **[Project Status](COMPLETED.md)** - Project completion status
+
+### Development
+- **[Architecture Overview](docs/architecture/overview.md)** - System architecture and design
+- **[Development Guide](docs/development/development_guide.md)** - Contributing and development setup
+- **[Testing Report](docs/development/testing_report.md)** - Test coverage and quality metrics
+
+---
+
+*For complete documentation index, see [docs/README.md](docs/README.md)*
 
 ## License
 

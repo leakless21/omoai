@@ -9,21 +9,21 @@ from unittest.mock import Mock, patch, MagicMock, AsyncMock, mock_open
 import asyncio
 from io import BytesIO
 
-from src.omoai.api.services import (
+from omoai.api.services import (
     preprocess_audio_service,
     asr_service,
     postprocess_service,
     run_full_pipeline
 )
-from src.omoai.api.models import (
+from omoai.api.models import (
     PreprocessRequest,
     ASRRequest,
     PostprocessRequest,
     PipelineRequest,
     OutputFormatParams
 )
-from src.omoai.api.exceptions import AudioProcessingException
-from src.omoai.api.config import get_config
+from omoai.api.exceptions import AudioProcessingException
+from omoai.config import get_config
 from litestar.datastructures import UploadFile
 
 
@@ -53,8 +53,8 @@ class TestPreprocessAudioService:
     """Test cases for preprocess_audio_service function."""
 
     @pytest.mark.asyncio
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.get_config')
     async def test_preprocess_audio_success(self, mock_get_config, mock_run_script, temp_dir, mock_upload_file):
         """Test successful audio preprocessing."""
         # Setup mocks
@@ -75,8 +75,8 @@ class TestPreprocessAudioService:
         mock_run_script.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.get_config')
     async def test_preprocess_audio_script_failure(self, mock_get_config, mock_run_script, temp_dir, mock_upload_file):
         """Test preprocessing failure when script fails."""
         # Setup mocks
@@ -96,8 +96,8 @@ class TestPreprocessAudioService:
             await preprocess_audio_service(request)
 
     @pytest.mark.asyncio
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.get_config')
     async def test_preprocess_audio_unexpected_error(self, mock_get_config, mock_run_script, temp_dir, mock_upload_file):
         """Test preprocessing failure with unexpected error."""
         # Setup mocks
@@ -117,8 +117,8 @@ class TestPreprocessAudioService:
 class TestASRService:
     """Test cases for asr_service function."""
 
-    @patch('src.omoai.api.services.run_asr_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_asr_script')
+    @patch('omoai.api.services.get_config')
     @patch('pathlib.Path.exists')
     def test_asr_service_success(self, mock_exists, mock_get_config, mock_run_script, temp_dir):
         """Test successful ASR processing."""
@@ -165,8 +165,8 @@ class TestASRService:
         with pytest.raises(FileNotFoundError, match="Preprocessed audio file not found"):
             asr_service(request)
 
-    @patch('src.omoai.api.services.run_asr_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_asr_script')
+    @patch('omoai.api.services.get_config')
     @patch('pathlib.Path.exists')
     def test_asr_service_script_failure(self, mock_exists, mock_get_config, mock_run_script, temp_dir):
         """Test ASR service when script fails."""
@@ -190,8 +190,8 @@ class TestASRService:
 class TestPostprocessService:
     """Test cases for postprocess_service function."""
 
-    @patch('src.omoai.api.services.run_postprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_postprocess_script')
+    @patch('omoai.api.services.get_config')
     def test_postprocess_service_success(self, mock_get_config, mock_run_script, temp_dir):
         """Test successful post-processing."""
         # Setup mocks
@@ -238,8 +238,8 @@ class TestPostprocessService:
             assert result.segments[0]["text"] == "Xin chào,"
             mock_run_script.assert_called_once()
 
-    @patch('src.omoai.api.services.run_postprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_postprocess_script')
+    @patch('omoai.api.services.get_config')
     def test_postprocess_service_script_failure(self, mock_get_config, mock_run_script, temp_dir):
         """Test post-processing service when script fails."""
         # Setup mocks
@@ -262,10 +262,10 @@ class TestRunFullPipeline:
     """Test cases for run_full_pipeline function."""
 
     @pytest.mark.asyncio
-    @patch('src.omoai.api.services.run_postprocess_script')
-    @patch('src.omoai.api.services.run_asr_script')
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_postprocess_script')
+    @patch('omoai.api.services.run_asr_script')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.get_config')
     async def test_run_full_pipeline_success(self, mock_get_config, mock_preprocess, mock_asr, mock_postprocess, temp_dir, mock_upload_file):
         """Test successful full pipeline execution."""
         # Setup mocks
@@ -317,10 +317,10 @@ class TestRunFullPipeline:
             mock_postprocess.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch('src.omoai.api.services.run_postprocess_script')
-    @patch('src.omoai.api.services.run_asr_script')
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_postprocess_script')
+    @patch('omoai.api.services.run_asr_script')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.get_config')
     async def test_run_full_pipeline_with_output_params(self, mock_get_config, mock_preprocess, mock_asr, mock_postprocess, temp_dir, mock_upload_file):
         """Test full pipeline with output parameter filtering."""
         # Setup mocks
@@ -366,8 +366,8 @@ class TestRunFullPipeline:
             assert len(result.segments) == 2  # Included by include=["segments"]
 
     @pytest.mark.asyncio
-    @patch('src.omoai.api.services.run_preprocess_script')
-    @patch('src.omoai.api.services.get_config')
+    @patch('omoai.api.services.run_preprocess_script')
+    @patch('omoai.api.services.get_config')
     async def test_run_full_pipeline_preprocess_failure(self, mock_get_config, mock_preprocess, temp_dir, mock_upload_file):
         """Test full pipeline when preprocessing fails."""
         # Setup mocks

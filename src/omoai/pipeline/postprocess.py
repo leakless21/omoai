@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from .asr import ASRResult, ASRSegment
 from ..config import OmoAIConfig, PunctuationConfig, SummarizationConfig
+from .exceptions import OMOPostprocessError, OMOConfigError, OMOModelError
 
 
 @dataclass
@@ -102,9 +103,9 @@ class VLLMProcessor:
             self._is_initialized = True
             
         except ImportError as e:
-            raise ImportError(f"vLLM not available for postprocessing: {e}")
+            raise OMOModelError(f"vLLM not available for postprocessing: {e}") from e
         except Exception as e:
-            raise RuntimeError(f"Failed to initialize vLLM processor: {e}")
+            raise OMOPostprocessError(f"Failed to initialize vLLM processor: {e}") from e
     
     def generate_text(
         self,
@@ -179,34 +180,20 @@ def punctuate_transcript(
         return asr_result.segments
     
     # Handle configuration
+    # Convert dict to PunctuationConfig if needed
     if isinstance(config, dict):
-        llm_config = config.get("llm", {})
-        system_prompt = config.get("system_prompt", """<instruction>
-    You are an expert in Vietnamese grammar and punctuation. Your task is to meticulously correct the input text by adding proper punctuation and capitalization.
-    - Add all necessary punctuation, including commas, periods, question marks, etc.
-    - Correct capitalization for the start of sentences and proper nouns (e.g., 'hà nội' -> 'Hà Nội').
-    - Ensure the original wording, word order, and meaning are perfectly preserved.
-    - Your output must be a single, coherent block of punctuated text and nothing else.
-    </instruction>
-    <example>
-    <input>xin chào thế giới đây là một ví dụ về khôi phục dấu câu</input>
-    <output>Xin chào thế giới, đây là một ví dụ về khôi phục dấu câu.</output>
-    </example>
-    <example>
-    <input>bạn tên là gì tôi tên là nam</input>
-    <output>Bạn tên là gì? Tôi tên là Nam.</output>
-    </example>
-    <example>
-    <input>tôi đang xem một buổi lai trim trên phây búc về trí tuệ nhân tạo ai</input>
-    <output>Tôi đang xem một buổi livestream trên Facebook về trí tuệ nhân tạo AI.</output>
-    </example>
-    <example>
-    <input>hôm qua tại hà nội thủ tướng đã nói chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế</input>
-    <output>Hôm qua tại Hà Nội, Thủ tướng đã nói: "Chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế."</output>
-    </example>
-    <policy>
-    ABSOLUTE RULE: Do not delete, replace, or rephrase any words from the original input. Your only task is to add punctuation and capitalization. The original words must be kept exactly as they are.
-    </policy>""")
+        from ..config import PunctuationConfig
+        try:
+            # Extract relevant fields for PunctuationConfig
+            punct_dict = {
+                "llm": config.get("llm", {}),
+                "system_prompt": config.get("system_prompt", ""),
+                "sampling": config.get("sampling", {}),
+                "preserve_original_words": config.get("preserve_original_words", True),
+            }
+            config = PunctuationConfig(**punct_dict)
+        except Exception as e:
+            raise OMOConfigError(f"Failed to convert dict to PunctuationConfig: {e}") from e
         temperature = config.get("sampling", {}).get("temperature", 0.0)
         preserve_words = config.get("preserve_original_words", True)
     else:
@@ -217,7 +204,7 @@ def punctuate_transcript(
     
     # Initialize processor if needed
     if processor is None:
-        processor = VLLMProcessor(**llm_config)
+        processor = VLLMProcessor(**llm_config.model_dump())
     
     # Import enhanced punctuation functions from scripts/post.py
     import sys
@@ -361,55 +348,33 @@ def summarize_text(
         )
     
     # Handle configuration
+    from ..config import SummarizationConfig
+    
     if isinstance(config, dict):
-        llm_config = config.get("llm", {})
-        system_prompt = config.get("system_prompt", """<instruction>
-    You are a highly skilled Vietnamese text analysis engine. Your task is to generate a concise summary of the input text and format it as a single, valid JSON object.
-    - The JSON object must contain exactly two keys: "bullets" and "abstract".
-    - The "bullets" value must be an array of 3 to 7 short Vietnamese sentences (max 20 words each), highlighting the main points.
-    - The "abstract" value must be a string containing a 2-3 sentence summary in Vietnamese.
-    - The summary must be based exclusively on the provided text.
-    - Your output MUST be only the JSON object. Do not include any other text, explanations, or markdown formatting before or after the JSON.
-    </instruction>
-    <example>
-    <input>Hệ thống nhận dạng giọng nói đã trở thành một công nghệ phổ biến. Nó được sử dụng trong nhiều ứng dụng từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả.</input>
-    <output>
-    {
-      "bullets": [
-        "Hệ thống nhận dạng giọng nói là công nghệ phổ biến.",
-        "Nó có nhiều ứng dụng như trợ lý ảo và điều khiển xe hơi.",
-        "Công nghệ này giúp tăng sự tiện lợi và hiệu quả."
-      ],
-      "abstract": "Hệ thống nhận dạng giọng nói là một công nghệ phổ biến được sử dụng trong nhiều ứng dụng, từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả cho người dùng."
-    }
-    </output>
-    </example>
-    <example>
-    <input>Trí tuệ nhân tạo đang thay đổi thế giới việc làm. Nhiều công việc lặp đi lặp lại có thể được tự động hóa, giúp con người tập trung vào các nhiệm vụ sáng tạo và chiến lược hơn. Tuy nhiên, điều này cũng đặt ra thách thức về đào tạo lại lực lượng lao động để họ có thể thích ứng với các vai trò mới. Các chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề này.</input>
-    <output>
-    {
-      "bullets": [
-        "Trí tuệ nhân tạo đang làm thay đổi thị trường lao động.",
-        "Các công việc lặp đi lặp lại đang được tự động hóa.",
-        "Con người có thể tập trung vào công việc sáng tạo và chiến lược.",
-        "Thách thức đặt ra là phải đào tạo lại lực lượng lao động.",
-        "Chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề."
-      ],
-      "abstract": "Trí tuệ nhân tạo đang thay đổi thế giới việc làm bằng cách tự động hóa các công việc lặp đi lặp lại, cho phép con người tập trung vào các nhiệm vụ sáng tạo hơn. Tuy nhiên, điều này tạo ra nhu cầu cấp thiết về việc đào tạo lại lực lượng lao động, đòi hỏi sự hợp tác giữa chính phủ và doanh nghiệp."
-    }
-    </output>
-    </example>""")
-        temperature = config.get("sampling", {}).get("temperature", 0.7)
-        use_map_reduce = config.get("map_reduce", False)
-    else:
-        llm_config = config.llm.__dict__
+        try:
+            # Extract relevant fields for SummarizationConfig
+            summ_dict = {
+                "llm": config.get("llm", {}),
+                "system_prompt": config.get("system_prompt", ""),
+                "sampling": config.get("sampling", {"temperature": 0.7}),
+                "map_reduce": config.get("map_reduce", False),
+            }
+            config = SummarizationConfig(**summ_dict)
+        except Exception as e:
+            raise OMOConfigError(f"Failed to convert dict to SummarizationConfig: {e}") from e
+    
+    # Extract configuration components
+    if isinstance(config, SummarizationConfig):
+        llm_config = config.llm
         system_prompt = config.system_prompt
         temperature = config.sampling.temperature
         use_map_reduce = config.map_reduce
+    else:
+        raise OMOConfigError(f"Unsupported config type for summarization: {type(config)}")
     
     # Initialize processor if needed
     if processor is None:
-        processor = VLLMProcessor(**llm_config)
+        processor = VLLMProcessor(**llm_config.model_dump())
     
     try:
         # For now, implement simple single-pass summarization
@@ -479,12 +444,18 @@ def postprocess_transcript(
         from ..config import get_config
         config = get_config()
     
+    # Convert dict to OmoAIConfig if needed
+    if isinstance(config, dict):
+        from ..config import OmoAIConfig
+        try:
+            config = OmoAIConfig(**config)
+        except Exception as e:
+            raise ValueError(f"Failed to convert dict to OmoAIConfig: {e}")
+    
+    # Extract configuration components
     if isinstance(config, OmoAIConfig):
         punct_config = punctuation_config or config.punctuation
         summ_config = summarization_config or config.summarization
-    elif isinstance(config, dict):
-        punct_config = punctuation_config or config.get("punctuation", {})
-        summ_config = summarization_config or config.get("summarization", {})
     else:
         if not punctuation_config or not summarization_config:
             raise ValueError("punctuation_config and summarization_config required when config is not OmoAIConfig")
@@ -492,14 +463,26 @@ def postprocess_transcript(
         summ_config = summarization_config
     
     # Check if models can be reused
-    punct_llm_config = punct_config.llm.__dict__ if hasattr(punct_config, 'llm') else punct_config.get("llm", {})
-    summ_llm_config = summ_config.llm.__dict__ if hasattr(summ_config, 'llm') else summ_config.get("llm", {})
+    # Handle the case where llm might be an object or a dict
+    if hasattr(punct_config.llm, '__dict__'):
+        # llm is an object, get its __dict__
+        punct_llm_config = punct_config.llm.__dict__
+    else:
+        # llm is already a dict, use it directly
+        punct_llm_config = punct_config.llm
+        
+    if hasattr(summ_config.llm, '__dict__'):
+        # llm is an object, get its __dict__
+        summ_llm_config = summ_config.llm.__dict__
+    else:
+        # llm is already a dict, use it directly
+        summ_llm_config = summ_config.llm
     
     can_reuse_model = (
-        punct_llm_config.get("model_id") == summ_llm_config.get("model_id") and
-        punct_llm_config.get("quantization") == summ_llm_config.get("quantization") and
-        punct_llm_config.get("max_model_len") == summ_llm_config.get("max_model_len")
-    )
+            punct_llm_config["model_id"] == summ_llm_config["model_id"] and
+            punct_llm_config["quantization"] == summ_llm_config["quantization"] and
+            punct_llm_config["max_model_len"] == summ_llm_config["max_model_len"]
+        )
     
     processor = None
     
@@ -558,61 +541,69 @@ def postprocess_transcript(
             gc.collect()
 
 
-# Legacy compatibility function
-def postprocess_asr_json(
-    asr_data: Dict[str, Any],
-    config: Union[OmoAIConfig, Dict[str, Any]],
-) -> Dict[str, Any]:
-    """
-    Legacy compatibility function for processing ASR JSON data.
+def _parse_time_to_seconds(value):
+    """Parse a timestamp value into seconds."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        value = value.strip()
+        try:
+            return float(value)
+        except ValueError:
+            pass
+        # Try HH:MM:SS:mmm format (with milliseconds)
+        parts = value.split(":")
+        if len(parts) == 4:
+            h, m, s, ms = parts
+            return int(h) * 3600 + int(m) * 60 + float(s) + float(ms) / 1000
+        elif len(parts) == 3:
+            h, m, s = parts
+            return int(h) * 3600 + int(m) * 60 + float(s)
+        elif len(parts) == 2:
+            m, s = parts
+            return int(m) * 60 + float(s)
+    return None
+
+
+def _dedup_overlap(prev, nxt, max_tokens=8):
+    """Remove duplicated token overlap between strings."""
+    pt = prev.strip().split()
+    nt = nxt.strip().split()
+    max_k = min(max_tokens, len(pt), len(nt))
+    for k in range(max_k, 0, -1):
+        if pt[-k:] == nt[:k]:
+            return " ".join(nt[k:])
+    return nxt
+
+
+def join_punctuated_segments(segments, join_separator=" ", paragraph_gap_seconds=3.0):
+    """Join punctuated segments into coherent text."""
+    if not segments:
+        return ""
     
-    Args:
-        asr_data: ASR result in legacy JSON format
-        config: Configuration object or dict
+    parts = []
+    last_end = None
+    
+    for seg in segments:
+        text = seg.get("text_punct") or seg.get("text") or ""
+        if not text.strip():
+            continue
+            
+        start = _parse_time_to_seconds(seg.get("start"))
         
-    Returns:
-        Legacy-format postprocessing result
-    """
-    # Convert legacy format to ASRResult
-    segments = [
-        ASRSegment(
-            start=seg.get("start", 0.0),
-            end=seg.get("end", 0.0),
-            text=seg.get("text_raw", ""),
-        )
-        for seg in asr_data.get("segments", [])
-    ]
+        # Add paragraph break if gap is large
+        if (last_end is not None and start is not None and 
+            start - last_end >= paragraph_gap_seconds and parts):
+            parts.append("\n\n")
+        
+        if parts and not parts[-1].endswith("\n\n"):
+            parts.append(join_separator)
+        parts.append(text.strip())
+        
+        last_end = _parse_time_to_seconds(seg.get("end"))
     
-    asr_result = ASRResult(
-        segments=segments,
-        transcript=asr_data.get("transcript_raw", ""),
-        audio_duration_seconds=asr_data.get("audio", {}).get("duration_s", 0.0),
-        sample_rate=asr_data.get("audio", {}).get("sr", 16000),
-        metadata=asr_data.get("metadata", {}),
-    )
-    
-    # Process
-    result = postprocess_transcript(asr_result, config)
-    
-    # Convert back to legacy format
-    return {
-        "segments": [
-            {
-                "start": seg.start,
-                "end": seg.end,
-                "text_raw": asr_data.get("segments", [])[i].get("text_raw", "") if i < len(asr_data.get("segments", [])) else "",
-                "text_punct": seg.text,
-            }
-            for i, seg in enumerate(result.segments)
-        ],
-        "transcript_raw": asr_result.transcript,
-        "transcript_punct": result.transcript_punctuated,
-        "summary": {
-            "bullets": result.summary.bullets,
-            "abstract": result.summary.abstract,
-        },
-        "metadata": {
-            **asr_result.metadata,
-            **result.metadata,
-        },
-    }
+    return "".join(parts).strip()
+
+

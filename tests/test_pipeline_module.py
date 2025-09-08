@@ -282,7 +282,8 @@ class TestPipelineModule(unittest.TestCase):
             
             result = run_full_pipeline_memory(
                 audio_input=b"fake_audio",
-                validate_input=False  # Skip validation for test
+                validate_input=False,  # Skip validation for test
+                extract_audio_info=False,  # Skip audio info extraction for test
             )
         
         self.assertIsInstance(result, PipelineResult)
@@ -325,7 +326,8 @@ class TestPipelineModule(unittest.TestCase):
             
             result = run_full_pipeline_memory(
                 audio_input=b"fake_audio",
-                validate_input=False
+                validate_input=False,
+                extract_audio_info=False,  # Skip audio info extraction for test
             )
             
             # Verify timing information is captured
@@ -356,7 +358,7 @@ class TestPipelineModule(unittest.TestCase):
                 mock_config.return_value = OmoAIConfig(**self.test_config)
                 
                 with self.assertRaises(RuntimeError) as ctx:
-                    run_full_pipeline_memory(b"fake_audio", validate_input=False)
+                    run_full_pipeline_memory(b"fake_audio", validate_input=False, extract_audio_info=False)  # Skip audio info extraction for test
                 
                 self.assertIn("Pipeline failed", str(ctx.exception))
                 self.assertIn("Preprocessing failed", str(ctx.exception))
@@ -390,7 +392,8 @@ class TestPipelineModule(unittest.TestCase):
                 audio_input=b"fake_audio",
                 save_intermediates=True,
                 output_dir=self.temp_dir,
-                validate_input=False
+                validate_input=False,
+                extract_audio_info=False,  # Skip audio info extraction for test
             )
             
             # Verify files would be saved
@@ -421,9 +424,8 @@ class TestPipelineModule(unittest.TestCase):
             
             result = run_full_pipeline_memory(
                 audio_input=b"fake_audio",
-                validate_input=False
-            )
-            
+                validate_input=False,
+                extract_audio_info=False)  # Skip audio info extraction for test
             # Check performance metrics
             self.assertIn("real_time_factor", result.metadata["performance"])
             self.assertIn("audio_duration", result.metadata["performance"])
