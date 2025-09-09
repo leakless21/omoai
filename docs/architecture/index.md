@@ -4,13 +4,21 @@ This document provides a detailed architectural overview of the audio processing
 
 ## 1. High-Level Overview
 
-The system is designed as a modular, end-to-end pipeline for processing audio files, with a primary focus on podcasts. The architecture is composed of three main stages: Preprocessing, Transcription (ASR), and Post-processing. Each stage is implemented as a distinct Python script, orchestrated by a central controller, `main.py`.
+The system is designed as a modular, end-to-end pipeline for processing audio files, with a primary focus on podcasts. The architecture is composed of three main stages: Preprocessing, Transcription (ASR), and Post-processing. These stages can be executed through both a command-line interface and a RESTful API.
 
 The pipeline accepts an audio file as input, transforms it into a standardized format, transcribes it into text, and then refines the text by adding punctuation and generating a summary. The entire process is configurable through a central YAML configuration file, `config.yaml`.
 
-The system also exposes its functionality through a RESTful API, allowing for programmatic access.
+The system features dual-mode operation:
+
+- **Script-based mode**: Traditional execution through external scripts for maximum compatibility
+- **In-memory mode**: High-performance processing with cached models for optimal speed
+- **Auto mode**: Intelligent selection between the two modes based on system capabilities
+
+The RESTful API provides comprehensive access to all pipeline functionality with automatic fallback between processing modes.
 
 ## 2. System Components
+
+[text](../project)
 
 ### 2.1. Main Orchestrator (`src/omoai/main.py`)
 
@@ -63,18 +71,73 @@ This component refines the raw transcript from the ASR stage.
 
 ### 2.5. API Component (`src/omoai/api/`)
 
-This component is responsible for exposing the audio processing pipeline via a RESTful API.
+This component is responsible for exposing the audio processing pipeline via a RESTful API with dual-mode operation capabilities.
 
-- **Area of Responsibility**: Provides a web-based interface for submitting audio files and receiving processed transcripts and summaries.
-- **Technical Requirements**: Built using the Litestar framework. It can use either script-based wrappers or in-memory processing with cached model singletons for high performance.
-- **Compute**: Lightweight for request handling. Processing is delegated to the appropriate backend (scripts or in-memory pipeline).
+- **Area of Responsibility**: Provides a web-based interface for submitting audio files and receiving processed transcripts and summaries with comprehensive output formatting options.
+- **Technical Requirements**: Built using the Litestar framework with Pydantic for request/response validation. Features intelligent service mode selection with automatic fallback.
+- **Compute**: Lightweight for request handling. Processing is delegated to the appropriate backend (scripts or in-memory pipeline) based on system capabilities and configuration.
 - **Interface**: Exposes RESTful endpoints for the main pipeline (`/pipeline`), as well as individual stages (`/preprocess`, `/asr`, `/postprocess`), plus health check (`/health`).
 - **Key Features**:
-  - **Dual-Mode Operation**: Can run in a high-performance in-memory mode or a reliable script-based fallback mode.
+  - **Dual-Mode Operation**: Can run in a high-performance in-memory mode or a reliable script-based fallback mode, with automatic selection.
   - **Model Caching**: Uses singletons to load models once and cache them for subsequent requests, significantly reducing latency.
+  - **Flexible Output Formats**: Supports multiple response formats including JSON, plain text, SRT, VTT, and Markdown.
+  - **Query Parameter Configuration**: Extensive customization options through query parameters for output content and formatting.
+  - **Quality Metrics**: Optional inclusion of transcription quality metrics and human-readable diffs.
   - **Progress Monitoring**: Real-time stdout/stderr output from underlying scripts is visible in the API server terminal.
-  - **Large File Support**: Handles up to 100MB audio files.
-- **Dependencies**: `litestar`, `pydantic`.
+  - **Large File Support**: Handles up to 100MB audio files (configurable).
+  - **Error Handling**: Comprehensive error handling with appropriate HTTP status codes and detailed error messages.
+  - **OpenAPI Documentation**: Interactive API documentation available at `/schema` endpoint.
+- **Core Classes & Logic**:
+  - `src/omoai/api.app`: Litestar application setup and configuration
+  - `src/omoai.api.main_controller.MainController`: Handles the main `/pipeline` endpoint with full pipeline processing
+  - `src/omoai.api.models`: Pydantic models for request/response validation including `PipelineRequest`, `PipelineResponse`, `OutputFormatParams`
+  - `src.omoai.api.services_enhanced`: Smart service selection with automatic fallback between v1 (script) and v2 (in-memory) implementations
+- **Dependencies**: `litestar`, `pydantic`, `uvicorn`, `python-multipart`.
+
+### 2.6. Service Management Layer (`src/omoai/api/services_enhanced.py`)
+
+This component provides intelligent service management with automatic fallback capabilities.
+
+- **Area of Responsibility**: Manages the selection and execution of processing services based on system capabilities and configuration.
+- **Technical Requirements**: Implements three service modes (auto, memory, script) with health checking and automatic failover.
+- **Compute**: Lightweight service orchestration with minimal overhead.
+- **Interface**: Provides unified service interface that abstracts away the underlying implementation details.
+- **Key Features**:
+  - **Service Mode Selection**: Automatic selection based on configuration, environment variables, and system health.
+  - **Health Monitoring**: Continuous monitoring of model availability and system resources.
+  - **Graceful Fallback**: Automatic transition to script-based mode when in-memory services are unavailable.
+  - **Performance Benchmarking**: Tools for comparing performance between service modes.
+  - **Model Warmup**: Preloading of models during application startup for optimal performance.
+- **Core Classes & Logic**:
+  - `ServiceMode`: Enumeration defining available service modes
+  - `get_service_mode()`: Determines the active service mode based on configuration and environment
+  - `should_use_in_memory_service()`: Health check for in-memory service availability
+  - `run_full_pipeline()`: Smart pipeline execution with automatic fallback
+  - `warmup_services()`: Model preloading for performance optimization
+- **Dependencies**: Internal service implementations (v1 and v2).
+
+### 2.7. Configuration Management (`src/omoai/config/`)
+
+This component provides comprehensive configuration management with validation and type safety.
+
+- **Area of Responsibility**: Centralized configuration loading, validation, and management for all system components.
+- **Technical Requirements**: Uses Pydantic for type-safe configuration with environment variable support and YAML parsing.
+- **Compute**: Lightweight configuration loading with caching for performance.
+- **Interface**: Provides singleton access pattern with automatic configuration discovery and validation.
+- **Key Features**:
+  - **Type Safety**: Full type validation using Pydantic dataclasses
+  - **Environment Variable Support**: Override any configuration value via environment variables
+  - **Automatic Discovery**: Searches for configuration files in standard locations
+  - **Validation**: Comprehensive validation with clear error messages
+  - **Security**: Secure defaults with warnings for potentially dangerous settings
+- **Core Classes & Logic**:
+  - `src.omoai.config.schemas.OmoAIConfig`: Main configuration class with nested sub-configurations
+  - `src.omoai.config.schemas.PathsConfig`: File and directory path configuration
+  - `src.omoai.config.schemas.ASRConfig`: ASR-specific configuration
+  - `src.omoai.config.schemas.LLMConfig`: LLM configuration with security settings
+  - `src.omoai.config.schemas.APIConfig`: API server configuration
+  - `get_config()`: Singleton accessor for configuration instance
+- **Dependencies**: `pydantic`, `pydantic-settings`, `pyyaml`.
 
 ## 3. Data Flow
 

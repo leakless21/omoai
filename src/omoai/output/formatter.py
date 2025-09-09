@@ -124,6 +124,60 @@ def format_timestamp(seconds: float, format_type: str) -> str:
         raise ValueError(f"Unknown timestamp format: {format_type}")
 
 
+def parse_timestamp_to_seconds(value: Any) -> Optional[float]:
+    """Parse a timestamp value (float, int, or string) into seconds.
+
+    Supports:
+    - numeric types (returned as float)
+    - strings like "HH:MM:SS.mmm", "MM:SS.mmm", "HH:MM:SS", "MM:SS",
+      and also "HH:MM:SS:ms" where the last field is milliseconds.
+    Returns None if parsing fails or value is None.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return float(value)
+        except Exception:
+            return None
+    if not isinstance(value, str):
+        return None
+
+    s = value.strip()
+    if not s:
+        return None
+
+    # Accept both comma and dot as decimal separator
+    s = s.replace(",", ".")
+
+    # Try plain float string first
+    try:
+        return float(s)
+    except Exception:
+        pass
+
+    # Split by colon to support "HH:MM:SS(.mmm)" and "HH:MM:SS:ms"
+    parts = s.split(":")
+    try:
+        if len(parts) == 4:
+            # HH:MM:SS:ms (ms is milliseconds)
+            hh, mm, ss, ms = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+            return float(hh) * 3600.0 + float(mm) * 60.0 + float(ss) + float(ms) / 1000.0
+        if len(parts) == 3:
+            # HH:MM:SS(.mmm)?
+            hh = int(parts[0])
+            mm = int(parts[1])
+            ss = float(parts[2])
+            return float(hh) * 3600.0 + float(mm) * 60.0 + ss
+        if len(parts) == 2:
+            # MM:SS(.mmm)?
+            mm = int(parts[0])
+            ss = float(parts[1])
+            return float(mm) * 60.0 + ss
+    except Exception:
+        return None
+
+    return None
 def wrap_text(text: str, width: int) -> str:
     """Wrap text to specified width, preserving paragraphs."""
     if width <= 0:
@@ -155,22 +209,34 @@ def extract_segment_data(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     normalized = []
     
     for seg in segments:
-        # Handle different segment formats
-        start = seg.get("start", 0.0)
-        end = seg.get("end", 0.0)
-        
-        # Extract text (try different field names)
-        text_raw = seg.get("text_raw", seg.get("text", ""))
-        text_punct = seg.get("text_punct", seg.get("text", text_raw))
-        
-        confidence = seg.get("confidence")
-        
-        normalized.append({
-            "start": float(start),
-            "end": float(end),
-            "text_raw": str(text_raw).strip(),
-            "text_punct": str(text_punct).strip(), 
-            "confidence": confidence,
-        })
+            # Handle different segment formats and robust timestamp parsing
+            start_raw = seg.get("start", 0.0)
+            end_raw = seg.get("end", 0.0)
+
+            start_sec = parse_timestamp_to_seconds(start_raw)
+            end_sec = parse_timestamp_to_seconds(end_raw)
+
+            try:
+                start_f = float(start_sec) if start_sec is not None else 0.0
+            except Exception:
+                start_f = 0.0
+            try:
+                end_f = float(end_sec) if end_sec is not None else start_f
+            except Exception:
+                end_f = start_f
+            
+            # Extract text (try different field names)
+            text_raw = seg.get("text_raw", seg.get("text", ""))
+            text_punct = seg.get("text_punct", seg.get("text", text_raw))
+            
+            confidence = seg.get("confidence")
+            
+            normalized.append({
+                "start": start_f,
+                "end": end_f,
+                "text_raw": str(text_raw).strip(),
+                "text_punct": str(text_punct).strip(),
+                "confidence": confidence,
+            })
     
     return normalized

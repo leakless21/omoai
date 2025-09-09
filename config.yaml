@@ -7,14 +7,14 @@ paths:
   out_dir: ./data/output
 
 asr:
-  total_batch_duration_s: 3600  # 1 hour max (increased)
+  total_batch_duration_s: 3600 # 1 hour max (increased)
   chunk_size: 64
   left_context_size: 128
   right_context_size: 128
   device: auto
   autocast_dtype: fp16
   # Memory management for long audio
-  max_audio_duration_hours: 2  # Hard limit: 2 hours max
+  max_audio_duration_hours: 2 # Hard limit: 2 hours max
 
 llm:
   model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
@@ -34,22 +34,22 @@ punctuation:
     max_num_seqs: 2
     max_num_batched_tokens: 512
     trust_remote_code: true
-  preserve_original_words: true
+  preserve_original_words: false
   auto_switch_ratio: 0.98
   auto_margin_tokens: 128
-  adopt_case: true
   # New behavior controls
-  keep_nonempty_segments: true # When true, avoid empty text_punct by minimally punctuating original segment text
   enable_paragraphs: true
   join_separator: " "
   paragraph_gap_seconds: 3.0
   system_prompt: |
     <instruction>
-    You are an expert in Vietnamese grammar and punctuation. Your task is to meticulously correct the input text by adding proper punctuation and capitalization.
+    You are an expert Vietnamese proofreader. Your task is to meticulously correct the input text for grammar, spelling, punctuation, and capitalization.
+    - Correct all grammatical errors and typos (e.g., 'lai trim' -> 'livestream').
+    - Convert foreign words transcribed in Vietnamese back to their original spelling (e.g., 'phây búc' -> 'Facebook').
     - Add all necessary punctuation, including commas, periods, question marks, etc.
     - Correct capitalization for the start of sentences and proper nouns (e.g., 'hà nội' -> 'Hà Nội').
-    - Ensure the original wording, word order, and meaning are perfectly preserved.
-    - Your output must be a single, coherent block of punctuated text and nothing else.
+    - Ensure the original wording, word order, and meaning are perfectly preserved where grammatically correct.
+    - Your output must be a single, coherent block of corrected text and nothing else.
     </instruction>
     <example>
     <input>xin chào thế giới đây là một ví dụ về khôi phục dấu câu</input>
@@ -68,7 +68,7 @@ punctuation:
     <output>Hôm qua tại Hà Nội, Thủ tướng đã nói: "Chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế."</output>
     </example>
     <policy>
-    ABSOLUTE RULE: Do not delete any words from the original input. Your only task is to add proper pronunciation, punctuation and capitalization. The original words must be kept presented.
+    ABSOLUTE RULE: While correcting errors, you must not alter the original meaning of the text. Preserve the author's intent.
     </policy>
   sampling:
     temperature: 0.0
@@ -177,8 +177,8 @@ output:
 api:
   host: "0.0.0.0"
   port: 8000
-  max_body_size_mb: 200  # Increased for longer audio files
-  request_timeout_seconds: 1800  # 30 minutes to match ASR batch duration
+  max_body_size_mb: 200 # Increased for longer audio files
+  request_timeout_seconds: 1800 # 30 minutes to match ASR batch duration
   temp_dir: "/tmp"
   cleanup_temp_files: true
   enable_progress_output: true

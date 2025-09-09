@@ -176,10 +176,6 @@ class PunctuationConfig(BaseModel):
         le=1024,
         description="Safety margin tokens"
     )
-    adopt_case: bool = Field(
-        default=True,
-        description="Adopt LLM capitalization when words match"
-    )
     enable_paragraphs: bool = Field(
         default=True,
         description="Enable paragraph breaks based on timing"

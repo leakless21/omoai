@@ -242,7 +242,7 @@ def punctuate_transcript(
             
             # Join punctuated segments using enhanced alignment algorithm
             # This handles word-level and character-level alignment
-            final_segments = _safe_distribute_punct_to_segments(punctuated_segments)
+            final_segments = _safe_distribute_punct_to_segments(punctuated_segments, keep_nonempty_segments=True)
             
             # Convert back to ASRSegment format
             result_segments = []

@@ -1244,8 +1244,7 @@ def main() -> None:
     # Punctuation controls (segmented batching only)
     parser.add_argument("--punct-auto-ratio", type=float, default=None, help="Ratio of context length used to form per-batch token budget")
     parser.add_argument("--punct-auto-margin", type=int, default=None, help="Margin tokens reserved for punctuation output")
-    parser.add_argument("--adopt-case", action="store_true", help="Adopt LLM capitalization when words match")
-    parser.add_argument("--no-adopt-case", action="store_true", help="Disable case adoption")
+    
     parser.add_argument("--enable-paragraphs", action="store_true", help="Enable paragraph breaks based on timing gaps")
     parser.add_argument("--no-paragraphs", action="store_true", help="Disable paragraph formatting")
     # Safety controls
@@ -1309,13 +1308,11 @@ def main() -> None:
     punct_auto_ratio = float(args.punct_auto_ratio or cfg_get(["punctuation", "auto_switch_ratio"], 0.98))
     punct_auto_margin = int(args.punct_auto_margin or cfg_get(["punctuation", "auto_margin_tokens"], 128))
     
-    # Output quality controls
-    adopt_case = cfg_get(["punctuation", "adopt_case"], True)
-    if args.adopt_case:
-        adopt_case = True
-    elif args.no_adopt_case:
-        adopt_case = False
+    # Output quality controls (hardcoded)
+    adopt_case = True
     preserve_original_words = bool(cfg_get(["punctuation", "preserve_original_words"], True))
+    # keep_nonempty_segments is enforced and not user-configurable
+    keep_nonempty_segments = True
     
     enable_paragraphs = cfg_get(["punctuation", "enable_paragraphs"], True)
     if args.enable_paragraphs:

@@ -44,7 +44,7 @@ All tests passed successfully, indicating that the API is functioning as expecte
 
 During the integration testing phase, a critical bug was identified in the `/pipeline` endpoint.
 
-- **Bug**: The endpoint was not correctly parsing query parameters, leading to incorrect behavior when processing requests.
+- **Bug**: The endpoint was not correctly parsing query parame[text](.)ters, leading to incorrect behavior when processing requests.
 - **Root Cause**: The issue was traced back to a parameter handling error in `src/omoai/api/main_controller.py`.
 - **Resolution**: The code was updated to correctly parse and handle the query parameters, resolving the issue. This fix was validated by the integration test suite.
 
