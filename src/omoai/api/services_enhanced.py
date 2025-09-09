@@ -194,6 +194,23 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[dict]
         try:
             # Read the full content (consumes the UploadFile stream)
             file_bytes = await data.audio_file.read()
+            
+            # Basic size validation
+            if len(file_bytes) == 0:
+                raise AudioProcessingException("Uploaded audio file is empty")
+            
+            # Estimate audio duration for very rough validation
+            # Rough estimate: ~1MB per minute for typical compressed audio
+            estimated_minutes = len(file_bytes) / (1024 * 1024)
+            if estimated_minutes > 180:  # 3 hours
+                raise AudioProcessingException(
+                    f"Audio file appears to be very long (~{estimated_minutes:.1f} minutes estimated). "
+                    f"Maximum recommended duration is 3 hours. "
+                    f"Consider splitting large files for better performance."
+                )
+                
+        except AudioProcessingException:
+            raise
         except Exception:
             # If reading fails, raise a clear processing error
             raise AudioProcessingException("Failed to read uploaded audio file")

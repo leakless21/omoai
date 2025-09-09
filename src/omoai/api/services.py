@@ -287,15 +287,55 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Outpu
                 if "transcript_punct" not in include_set:
                     filtered_transcript_punct = ""
 
+            # Include quality_metrics and diffs if requested and available
+            quality_metrics = None
+            diffs = None
+            
+            if output_params.include_quality_metrics and "quality_metrics" in final_obj:
+                quality_metrics_data = final_obj["quality_metrics"]
+                from omoai.api.models import QualityMetrics
+                quality_metrics = QualityMetrics(**quality_metrics_data)
+            
+            if output_params.include_diffs and "diffs" in final_obj:
+                diffs_data = final_obj["diffs"]
+                from omoai.api.models import HumanReadableDiff
+                # Handle both single diff and list of diffs
+                if isinstance(diffs_data, list) and diffs_data:
+                    diffs = HumanReadableDiff(**diffs_data[0])
+                elif isinstance(diffs_data, dict):
+                    diffs = HumanReadableDiff(**diffs_data)
+
             return PipelineResponse(
                 summary=filtered_summary,
                 segments=filtered_segments,
                 transcript_punct=filtered_transcript_punct,
+                quality_metrics=quality_metrics,
+                diffs=diffs,
             )
 
         # Default behavior (backward compatibility)
+        # Include quality_metrics and diffs if requested and available
+        quality_metrics = None
+        diffs = None
+        
+        if output_params and output_params.include_quality_metrics and "quality_metrics" in final_obj:
+            quality_metrics_data = final_obj["quality_metrics"]
+            from omoai.api.models import QualityMetrics
+            quality_metrics = QualityMetrics(**quality_metrics_data)
+        
+        if output_params and output_params.include_diffs and "diffs" in final_obj:
+            diffs_data = final_obj["diffs"]
+            from omoai.api.models import HumanReadableDiff
+            # Handle both single diff and list of diffs
+            if isinstance(diffs_data, list) and diffs_data:
+                diffs = HumanReadableDiff(**diffs_data[0])
+            elif isinstance(diffs_data, dict):
+                diffs = HumanReadableDiff(**diffs_data)
+
         return PipelineResponse(
             summary=dict(final_obj.get("summary", {}) or {}),
             segments=list(final_obj.get("segments", []) or []),
             transcript_punct=str(final_obj.get("transcript_punct", "")) or None,
+            quality_metrics=quality_metrics,
+            diffs=diffs,
         )

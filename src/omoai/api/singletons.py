@@ -3,15 +3,48 @@ Singleton model managers for efficient API services.
 
 This module provides cached model instances to eliminate the overhead of
 loading models for each request, dramatically improving API performance.
+
+Includes CUDA context management for multiprocessing compatibility.
 """
 import asyncio
 import threading
+import multiprocessing
+import os
 from typing import Optional, Dict, Any
 from pathlib import Path
 
 from ..config import get_config, OmoAIConfig
 from ..pipeline import ChunkFormerASR, run_full_pipeline_memory
 from ..pipeline.postprocess import VLLMProcessor
+
+
+def _ensure_spawn_multiprocessing():
+    """Ensure spawn multiprocessing is configured for CUDA compatibility."""
+    try:
+        current_method = multiprocessing.get_start_method(allow_none=True)
+        if current_method != 'spawn':
+            # Only set if not already set
+            if current_method is None:
+                multiprocessing.set_start_method('spawn', force=True)
+                print("✅ Singletons: Set multiprocessing to 'spawn' for CUDA compatibility")
+            else:
+                print(f"⚠️ Singletons: Multiprocessing already set to '{current_method}'")
+    except RuntimeError as e:
+        print(f"ℹ️ Singletons: Multiprocessing configuration: {e}")
+
+
+def _configure_cuda_environment():
+    """Configure environment variables for optimal CUDA performance."""
+    # Only set if not already configured
+    if 'CUDA_DEVICE_ORDER' not in os.environ:
+        os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+    
+    if 'PYTORCH_CUDA_ALLOC_CONF' not in os.environ:
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+    
+    # vLLM specific settings for better multiprocessing
+    if 'VLLM_WORKER_MULTIPROC_METHOD' not in os.environ:
+        os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
 
 
 class ModelSingletons:
@@ -35,6 +68,11 @@ class ModelSingletons:
             return
             
         self._initialized = True
+        
+        # Configure multiprocessing and CUDA environment
+        _ensure_spawn_multiprocessing()
+        _configure_cuda_environment()
+        
         self._config: Optional[OmoAIConfig] = None
         self._asr_model: Optional[ChunkFormerASR] = None
         self._punctuation_processor: Optional[VLLMProcessor] = None

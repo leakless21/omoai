@@ -7,12 +7,14 @@ paths:
   out_dir: ./data/output
 
 asr:
-  total_batch_duration_s: 1800
+  total_batch_duration_s: 3600  # 1 hour max (increased)
   chunk_size: 64
   left_context_size: 128
   right_context_size: 128
   device: auto
   autocast_dtype: fp16
+  # Memory management for long audio
+  max_audio_duration_hours: 2  # Hard limit: 2 hours max
 
 llm:
   model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
@@ -175,12 +177,12 @@ output:
 api:
   host: "0.0.0.0"
   port: 8000
-  max_body_size_mb: 100
-  request_timeout_seconds: 300
+  max_body_size_mb: 200  # Increased for longer audio files
+  request_timeout_seconds: 1800  # 30 minutes to match ASR batch duration
   temp_dir: "/tmp"
   cleanup_temp_files: true
   enable_progress_output: true
-  service_mode: "script"
+  service_mode: "memory"
   health_check_dependencies:
     - ffmpeg
     - config_file

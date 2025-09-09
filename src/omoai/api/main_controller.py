@@ -5,6 +5,7 @@ from litestar.enums import RequestEncodingType
 from litestar.response import Redirect, Response
 import logging
 from pathlib import Path
+from datetime import datetime
 from omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
 from omoai.api.services_enhanced import run_full_pipeline as run_full_pipeline_enhanced
 from omoai.config import get_config
@@ -40,6 +41,9 @@ class MainController(Controller):
         summary: Optional[Literal["bullets", "abstract", "both", "none"]] = None,
         summary_bullets_max: Optional[int] = None,
         summary_lang: Optional[str] = None,
+        # Quality metrics and diff options
+        include_quality_metrics: Optional[bool] = None,
+        include_diffs: Optional[bool] = None,
     ) -> PipelineResponse | Response[str]:
         """
         Endpoint to run the entire audio processing pipeline.
@@ -49,15 +53,25 @@ class MainController(Controller):
         2. ASR: Pass the preprocessed file path to the ASR logic to get the raw transcript and segments.
         3. Post-process: Pass the ASR output to the post-processing logic to get the final punctuated transcript and summary.
 
+        Default Response (no query parameters):
+        - transcript_punct: Punctuated transcript text
+        - summary.bullets: Bullet point summary
+        - summary.abstract: Abstract summary
+        - segments: Empty array (excluded by default)
+
         Query Parameters (optional):
         - formats: List of output formats (json, text, srt, vtt, md)
         - include: What to include (transcript_raw, transcript_punct, segments)
         - ts: Timestamp format (none, s, ms, clock)
-        - summary: Summary type (bullets, abstract, both, none)
+        - summary: Summary type (both=default, bullets, abstract, none)
         - summary_bullets_max: Maximum number of bullet points
         - summary_lang: Summary language
 
-        Example: GET /pipeline?include=segments&ts=clock&summary=bullets
+        Examples:
+        - Default: POST /pipeline (returns bullets + abstract + punctuated transcript)
+        - With segments: POST /pipeline?include=segments
+        - Bullets only: POST /pipeline?summary=bullets
+        - Full response: POST /pipeline?include=transcript_raw,segments
         """
         # Create OutputFormatParams object from query parameters
         output_params = OutputFormatParams(
@@ -66,7 +80,9 @@ class MainController(Controller):
             ts=ts,
             summary=summary,
             summary_bullets_max=summary_bullets_max,
-            summary_lang=summary_lang
+            summary_lang=summary_lang,
+            include_quality_metrics=include_quality_metrics,
+            include_diffs=include_diffs
         )
         
         # Debug logging to validate query parameter parsing
@@ -86,10 +102,24 @@ class MainController(Controller):
             cfg = get_config()
             if getattr(cfg.output, "save_on_api", False):
                 api_out = getattr(cfg.output, "api_output_dir", None)
-                output_dir = Path(api_out) if api_out else cfg.paths.out_dir
+                base_output_dir = Path(api_out) if api_out else cfg.paths.out_dir
+
+                # Create a unique timestamped subdirectory per API request
+                timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
+                unique_output_dir = Path(base_output_dir) / timestamp
+                try:
+                    unique_output_dir.mkdir(parents=True, exist_ok=False)
+                except FileExistsError:
+                    # Extremely unlikely due to microsecond precision, but handle just in case
+                    counter = 1
+                    while unique_output_dir.exists():
+                        unique_output_dir = Path(base_output_dir) / f"{timestamp}_{counter}"
+                        counter += 1
+                    unique_output_dir.mkdir(parents=True, exist_ok=True)
+
                 try:
                     written = write_outputs(
-                        output_dir,
+                        unique_output_dir,
                         result.segments,
                         getattr(result, "transcript_raw", ""),
                         getattr(result, "transcript_punct", ""),
@@ -97,9 +127,9 @@ class MainController(Controller):
                         getattr(result, "metadata", {}),
                         cfg.output,
                     )
-                    logger.info(f"Saved API outputs to {output_dir}: {written}")
+                    logger.info(f"Saved API outputs to {unique_output_dir}: {written}")
                 except Exception as e:
-                    logger.exception(f"Failed to write API outputs to {output_dir}: {e}")
+                    logger.exception(f"Failed to write API outputs to {unique_output_dir}: {e}")
         except Exception:
             # Best-effort only — do not fail the API because persistence failed
             logger.debug("Skipping API output persistence due to configuration/read error", exc_info=True)
@@ -115,11 +145,19 @@ class MainController(Controller):
         )
 
         if no_query_params:
-            # Return structured JSON response by default without raw transcript
-            # Only include punctuated transcript and summary by default
+            # Return structured JSON response by default
+            # Include punctuated transcript and full summary (bullets + abstract, no segments)
+            summary_default = {}
+            if result.summary and isinstance(result.summary, dict):
+                # Include both bullets and abstract by default
+                if "bullets" in result.summary:
+                    summary_default["bullets"] = result.summary["bullets"]
+                if "abstract" in result.summary:
+                    summary_default["abstract"] = result.summary["abstract"]
+            
             return PipelineResponse(
-                summary=result.summary,
-                segments=result.segments,
+                summary=summary_default,
+                segments=[],  # Exclude segments by default
                 transcript_punct=result.transcript_punct
             )
 
@@ -149,17 +187,35 @@ class MainController(Controller):
                     parts.append("\n".join(lines))
             return Response("\n".join(parts), media_type="text/plain; charset=utf-8")
 
-        # Otherwise, return structured JSON response but exclude raw transcript unless explicitly requested
-        # Check if transcript_raw is explicitly requested in include parameter
+        # Otherwise, return structured JSON response based on include parameters
+        # Check what components are explicitly requested
         include_raw = include and "transcript_raw" in include
+        include_segments = include and "segments" in include
+        include_punct = include and "transcript_punct" in include
         
+        # Determine what to include in summary based on summary parameter
+        summary_to_include = {}
+        if result.summary and isinstance(result.summary, dict):
+            if summary is None or summary == "both":  # Default to both bullets and abstract
+                summary_to_include = result.summary
+            elif summary == "bullets":
+                if "bullets" in result.summary:
+                    summary_to_include = {"bullets": result.summary["bullets"]}
+            elif summary == "abstract":
+                if "abstract" in result.summary:
+                    summary_to_include = {"abstract": result.summary["abstract"]}
+            elif summary == "none":
+                summary_to_include = {}
+        
+        # Build response based on explicit include parameters
+        response_data = {
+            "summary": summary_to_include,
+            "segments": result.segments if include_segments else [],
+            "transcript_punct": result.transcript_punct if (include_punct or include is None) else None
+        }
+        
+        # Add raw transcript only if explicitly requested
         if include_raw:
-            # If raw transcript is explicitly requested, return full result
-            return result
-        else:
-            # Exclude raw transcript from response
-            return PipelineResponse(
-                summary=result.summary,
-                segments=result.segments,
-                transcript_punct=result.transcript_punct
-            )
+            response_data["transcript_raw"] = getattr(result, "transcript_raw", "")
+        
+        return PipelineResponse(**{k: v for k, v in response_data.items() if v is not None})

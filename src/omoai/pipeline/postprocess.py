@@ -426,6 +426,8 @@ def postprocess_transcript(
     config: Optional[Union[OmoAIConfig, Dict[str, Any]]] = None,
     punctuation_config: Optional[Union[PunctuationConfig, Dict[str, Any]]] = None,
     summarization_config: Optional[Union[SummarizationConfig, Dict[str, Any]]] = None,
+    include_quality_metrics: bool = False,
+    include_diffs: bool = False,
 ) -> PostprocessResult:
     """
     Complete postprocessing: punctuation + summarization.
@@ -517,8 +519,11 @@ def postprocess_transcript(
                 "model_reuse": can_reuse_model,
                 "punctuation_model": punct_llm_config.get("model_id"),
                 "summarization_model": summ_llm_config.get("model_id"),
+                "punctuation_time_ms": punctuation_time * 1000,
+                "summarization_time_ms": summarization_time * 1000,
+                "total_time_ms": total_time * 1000,
             },
-            "quality_metrics": {
+            "basic_metrics": {
                 "segments_processed": len(punctuated_segments),
                 "transcript_length": len(punctuated_transcript),
                 "summary_bullets": len(summary.bullets),
@@ -526,6 +531,22 @@ def postprocess_transcript(
             },
             "original_asr": asr_result.metadata,
         }
+        
+        # Calculate quality metrics if requested
+        if include_quality_metrics or include_diffs:
+            raw_transcript = asr_result.transcript or ""
+            quality_data = _calculate_quality_metrics(
+                raw_transcript, 
+                punctuated_transcript, 
+                include_quality_metrics,
+                include_diffs
+            )
+            
+            if include_quality_metrics and quality_data.get("quality_metrics"):
+                metadata["quality_metrics"] = quality_data["quality_metrics"]
+                
+            if include_diffs and quality_data.get("diffs"):
+                metadata["diffs"] = quality_data["diffs"]
         
         return PostprocessResult(
             segments=punctuated_segments,
@@ -605,5 +626,208 @@ def join_punctuated_segments(segments, join_separator=" ", paragraph_gap_seconds
         last_end = _parse_time_to_seconds(seg.get("end"))
     
     return "".join(parts).strip()
+
+
+def _calculate_quality_metrics(raw_transcript: str, punctuated_transcript: str, 
+                              include_quality_metrics: bool, include_diffs: bool) -> Dict[str, Any]:
+    """Calculate quality metrics comparing raw and punctuated transcripts."""
+    import re
+    import difflib
+    from typing import List
+    
+    result = {}
+    
+    if not raw_transcript or not punctuated_transcript:
+        return result
+    
+    # Normalize texts for comparison
+    raw_normalized = _normalize_text_for_comparison(raw_transcript)
+    punct_normalized = _normalize_text_for_comparison(punctuated_transcript)
+    
+    if include_quality_metrics:
+        # Calculate various error rates
+        metrics = {}
+        
+        # Word Error Rate (WER) - comparing word sequences
+        raw_words = raw_normalized.split()
+        punct_words = punct_normalized.split()
+        
+        if raw_words:
+            wer = _calculate_wer(raw_words, punct_words)
+            metrics["wer"] = round(wer, 4)
+        
+        # Character Error Rate (CER) - comparing character sequences
+        if raw_normalized:
+            cer = _calculate_cer(raw_normalized, punct_normalized)
+            metrics["cer"] = round(cer, 4)
+        
+        # Punctuation Error Rate (PER) - focus on punctuation changes
+        per = _calculate_per(raw_transcript, punctuated_transcript)
+        metrics["per"] = round(per, 4)
+        
+        # Alignment confidence - measure of how well texts align
+        alignment_conf = _calculate_alignment_confidence(raw_words, punct_words)
+        metrics["alignment_confidence"] = round(alignment_conf, 4)
+        
+        result["quality_metrics"] = metrics
+    
+    if include_diffs:
+        # Generate human-readable diff
+        diff_lines = list(difflib.unified_diff(
+            raw_transcript.splitlines(keepends=True),
+            punctuated_transcript.splitlines(keepends=True),
+            fromfile="Raw Transcript",
+            tofile="Punctuated Transcript",
+            lineterm=""
+        ))
+        
+        diff_output = "".join(diff_lines)
+        
+        # Create alignment summary
+        alignment_summary = _create_alignment_summary(raw_transcript, punctuated_transcript)
+        
+        result["diffs"] = {
+            "original_text": raw_transcript,
+            "punctuated_text": punctuated_transcript,
+            "diff_output": diff_output,
+            "alignment_summary": alignment_summary
+        }
+    
+    return result
+
+
+def _normalize_text_for_comparison(text: str) -> str:
+    """Normalize text for quality comparison by removing punctuation and lowercasing."""
+    import re
+    # Remove punctuation except apostrophes, convert to lowercase
+    normalized = re.sub(r"[^\w\s']", "", text.lower())
+    # Normalize whitespace
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    return normalized
+
+
+def _calculate_wer(reference: List[str], hypothesis: List[str]) -> float:
+    """Calculate Word Error Rate using dynamic programming."""
+    if not reference:
+        return 1.0 if hypothesis else 0.0
+    
+    # Dynamic programming matrix
+    d = [[0] * (len(hypothesis) + 1) for _ in range(len(reference) + 1)]
+    
+    # Initialize first row and column
+    for i in range(len(reference) + 1):
+        d[i][0] = i
+    for j in range(len(hypothesis) + 1):
+        d[0][j] = j
+    
+    # Fill the matrix
+    for i in range(1, len(reference) + 1):
+        for j in range(1, len(hypothesis) + 1):
+            if reference[i-1] == hypothesis[j-1]:
+                d[i][j] = d[i-1][j-1]
+            else:
+                d[i][j] = min(
+                    d[i-1][j] + 1,      # deletion
+                    d[i][j-1] + 1,      # insertion
+                    d[i-1][j-1] + 1     # substitution
+                )
+    
+    return d[len(reference)][len(hypothesis)] / len(reference)
+
+
+def _calculate_cer(reference: str, hypothesis: str) -> float:
+    """Calculate Character Error Rate."""
+    if not reference:
+        return 1.0 if hypothesis else 0.0
+    
+    return _calculate_wer(list(reference), list(hypothesis))
+
+
+def _calculate_per(raw_text: str, punct_text: str) -> float:
+    """Calculate Punctuation Error Rate by comparing punctuation additions."""
+    import re
+    
+    # Extract punctuation from both texts
+    raw_punct = re.findall(r'[^\w\s]', raw_text)
+    punct_punct = re.findall(r'[^\w\s]', punct_text)
+    
+    # Count punctuation additions (most punctuation should be additions)
+    additions = len(punct_punct) - len(raw_punct)
+    
+    # Estimate "correctness" - this is a simple heuristic
+    # In practice, you'd want to compare against ground truth
+    if len(punct_punct) == 0:
+        return 0.0
+    
+    # Simple heuristic: assume reasonable punctuation density
+    words_in_punct = len(punct_text.split())
+    expected_punct_density = 0.1  # ~1 punctuation per 10 words
+    expected_punct = max(1, int(words_in_punct * expected_punct_density))
+    
+    # Calculate error as deviation from expected
+    actual_punct = len(punct_punct)
+    error = abs(actual_punct - expected_punct) / max(expected_punct, actual_punct)
+    
+    return min(1.0, error)
+
+
+def _calculate_alignment_confidence(ref_words: List[str], hyp_words: List[str]) -> float:
+    """Calculate a confidence score for text alignment."""
+    if not ref_words or not hyp_words:
+        return 0.0
+    
+    # Calculate longest common subsequence
+    lcs_length = _lcs_length(ref_words, hyp_words)
+    
+    # Confidence is the ratio of aligned words to total words
+    total_words = max(len(ref_words), len(hyp_words))
+    confidence = lcs_length / total_words if total_words > 0 else 0.0
+    
+    return confidence
+
+
+def _lcs_length(a: List[str], b: List[str]) -> int:
+    """Calculate length of Longest Common Subsequence."""
+    m, n = len(a), len(b)
+    dp = [[0] * (n + 1) for _ in range(m + 1)]
+    
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if a[i-1] == b[j-1]:
+                dp[i][j] = dp[i-1][j-1] + 1
+            else:
+                dp[i][j] = max(dp[i-1][j], dp[i][j-1])
+    
+    return dp[m][n]
+
+
+def _create_alignment_summary(raw_text: str, punct_text: str) -> str:
+    """Create a human-readable summary of text alignment changes."""
+    raw_words = raw_text.split()
+    punct_words = punct_text.split()
+    
+    summary_parts = []
+    summary_parts.append(f"Original words: {len(raw_words)}")
+    summary_parts.append(f"Punctuated words: {len(punct_words)}")
+    
+    # Count punctuation additions
+    import re
+    raw_punct_count = len(re.findall(r'[^\w\s]', raw_text))
+    punct_punct_count = len(re.findall(r'[^\w\s]', punct_text))
+    punct_added = punct_punct_count - raw_punct_count
+    
+    if punct_added > 0:
+        summary_parts.append(f"Punctuation marks added: {punct_added}")
+    elif punct_added < 0:
+        summary_parts.append(f"Punctuation marks removed: {abs(punct_added)}")
+    else:
+        summary_parts.append("No punctuation changes")
+    
+    # Estimate changes
+    word_diff = abs(len(punct_words) - len(raw_words))
+    if word_diff > 0:
+        summary_parts.append(f"Word count difference: {word_diff}")
+    
+    return "; ".join(summary_parts)
 
 
