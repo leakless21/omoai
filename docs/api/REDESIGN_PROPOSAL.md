@@ -461,6 +461,12 @@ class PipelineStatusResponse(BaseModel):
     completed_at: Optional[str] = Field( # Using string for ISO 8601 timestamp, could be datetime
         None, description="Timestamp when the task completed (either successfully or failed) (ISO 8601 format)."
     )
+    progress: Optional[float] = Field(
+        None,
+        description="Estimated progress of the task from 0 to 100.",
+        ge=0,
+        le=100
+    )
 
     class Config:
         schema_extra = {
@@ -481,7 +487,8 @@ class PipelineStatusResponse(BaseModel):
                 "errors": [],
                 "submitted_at": "2024-09-09T09:00:00Z",
                 "started_at": "2024-09-09T09:00:05Z",
-                "completed_at": "2024-09-09T09:01:12Z"
+                "completed_at": "2024-09-09T09:01:12Z",
+                "progress": 100.0
             },
             "example_failure": {
                 "task_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
@@ -492,7 +499,8 @@ class PipelineStatusResponse(BaseModel):
                 ],
                 "submitted_at": "2024-09-09T09:02:00Z",
                 "started_at": "2024-09-09T09:02:01Z",
-                "completed_at": "2024-09-09T09:02:15Z"
+                "completed_at": "2024-09-09T09:02:15Z",
+                "progress": 10.0
             },
             "example_pending": {
                 "task_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
@@ -501,7 +509,8 @@ class PipelineStatusResponse(BaseModel):
                 "errors": [],
                 "submitted_at": "2024-09-09T09:03:00Z",
                 "started_at": None,
-                "completed_at": None
+                "completed_at": None,
+                "progress": 0.0
             }
         }
 ```
