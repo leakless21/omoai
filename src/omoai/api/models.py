@@ -76,6 +76,7 @@ class PipelineResponse(BaseModel):
     # Punctuated transcript text for convenience (used for default text/plain responses)
     # Note: Raw transcript is excluded by default for privacy and data minimization
     transcript_punct: str | None = None
+    transcript_raw: Optional[str] = None
     quality_metrics: Optional[QualityMetrics] = None
     diffs: Optional[HumanReadableDiff] = None
     # Optional raw LLM summary text (unparsed), included only on request
@@ -88,6 +89,7 @@ class PreprocessResponse(BaseModel):
 
 class ASRResponse(BaseModel):
     segments: list
+    transcript_raw: Optional[str] = None
 
 
 class PostprocessResponse(BaseModel):

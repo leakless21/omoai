@@ -6,8 +6,8 @@ import json
 import tempfile
 import pytest
 from pathlib import Path
-from src.omoai.api.scripts.asr_wrapper import run_asr_script
-from src.omoai.api.exceptions import AudioProcessingException
+from omoai.api.scripts.asr_wrapper import run_asr_script
+from omoai.api.exceptions import AudioProcessingException
 
 
 def test_asr_script_with_valid_config():

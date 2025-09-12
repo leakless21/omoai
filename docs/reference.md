@@ -68,16 +68,16 @@ Execute the complete audio processing pipeline in a single request.
 
 #### Query Parameters
 
-| Parameter                 | Type    | Default                | Description                                                       |
-| ------------------------- | ------- | ---------------------- | ----------------------------------------------------------------- |
-| `formats`                 | array   | `["json"]`             | Output formats: `json`, `text`, `srt`, `vtt`, `md`                |
-| `include`                 | array   | `["transcript_punct"]` | What to include: `transcript_raw`, `transcript_punct`, `segments` |
-| `ts`                      | string  | `none`                 | Timestamp format: `none`, `s`, `ms`, `clock`                      |
-| `summary`                 | string  | `both`                 | Summary type: `bullets`, `abstract`, `both`, `none`               |
-| `summary_bullets_max`     | integer | `7`                    | Maximum number of bullet points                                   |
-| `summary_lang`            | string  | `vi`                   | Summary language code                                             |
-| `include_quality_metrics` | boolean | `false`                | Include quality metrics in response                               |
-| `include_diffs`           | boolean | `false`                | Include human-readable diffs                                      |
+| Parameter                 | Type    | Default                                  | Description                                                       |
+| ------------------------- | ------- | ---------------------------------------- | ----------------------------------------------------------------- |
+| `formats`                 | array   | `["json"]`                               | Output formats: `json`, `text`, `srt`, `vtt`, `md`                |
+| `include`                 | array   | `["transcript_raw", "transcript_punct"]` | What to include: `transcript_raw`, `transcript_punct`, `segments` |
+| `ts`                      | string  | `none`                                   | Timestamp format: `none`, `s`, `ms`, `clock`                      |
+| `summary`                 | string  | `both`                                   | Summary type: `bullets`, `abstract`, `both`, `none`               |
+| `summary_bullets_max`     | integer | `7`                                      | Maximum number of bullet points                                   |
+| `summary_lang`            | string  | `vi`                                     | Summary language code                                             |
+| `include_quality_metrics` | boolean | `false`                                  | Include quality metrics in response                               |
+| `include_diffs`           | boolean | `false`                                  | Include human-readable diffs                                      |
 
 #### Example Request
 
@@ -114,6 +114,7 @@ The `summary` field can be either a dictionary (containing "abstract" and/or "bu
     }
   ],
   "transcript_punct": "The full punctuated transcript text.",
+  "transcript_raw": "the full raw transcript text without punctuation",
   "quality_metrics": {
     "wer": 0.05,
     "cer": 0.03,
@@ -145,6 +146,7 @@ The `summary` field can be either a dictionary (containing "abstract" and/or "bu
     }
   ],
   "transcript_punct": "The full punctuated transcript text.",
+  "transcript_raw": "the full raw transcript text without punctuation",
   "quality_metrics": {
     "wer": 0.05,
     "cer": 0.03,
@@ -218,6 +220,8 @@ curl -X POST "http://localhost:8000/asr" \
 
 #### Response
 
+The response now includes the raw transcription by default.
+
 ```json
 {
   "segments": [
@@ -227,7 +231,8 @@ curl -X POST "http://localhost:8000/asr" \
       "text": "Transcribed text segment",
       "confidence": 0.95
     }
-  ]
+  ],
+  "transcript_raw": "transcribed text segment"
 }
 ```
 
@@ -333,7 +338,7 @@ curl -X GET "http://localhost:8000/health"
     "temp_dir": "accessible at /tmp",
     "config_loaded": "yes",
     "max_body_size": "100MB",
-    "models": {"status": "script_based"}
+    "models": { "status": "script_based" }
   }
 }
 ```
@@ -476,6 +481,7 @@ Interactive API documentation is available at `/schema` when the server is runni
 - Real-time API exploration
 
 Access the documentation at: http://localhost:8000/schema
+
 # Pipeline Endpoint Guide
 
 This document provides a comprehensive guide to the `/pipeline/` endpoint, including detailed examples of different configurations and their responses.
@@ -519,16 +525,17 @@ curl -X POST "http://localhost:8000/pipeline?summary=both&include=segments&ts=ms
 
 All query parameters are optional. If none are provided, the endpoint returns a default response with punctuated transcript and summary.
 
-| Parameter                 | Type    | Default                | Description                                                       |
-| ------------------------- | ------- | ---------------------- | ----------------------------------------------------------------- |
-| `formats`                 | array   | `["json"]`             | Output formats: `json`, `text`, `srt`, `vtt`, `md`                |
-| `include`                 | array   | `["transcript_punct"]` | What to include: `transcript_raw`, `transcript_punct`, `segments` |
-| `ts`                      | string  | `none`                 | Timestamp format: `none`, `s`, `ms`, `clock`                      |
-| `summary`                 | string  | `both`                 | Summary type: `bullets`, `abstract`, `both`, `none`               |
-| `summary_bullets_max`     | integer | `7`                    | Maximum number of bullet points                                   |
-| `summary_lang`            | string  | `vi`                   | Summary language code                                             |
-| `include_quality_metrics` | boolean | `false`                | Include quality metrics in response                               |
-| `include_diffs`           | boolean | `false`                | Include human-readable diffs                                      |
+| Parameter                 | Type    | Default                                  | Description                                                       |
+| ------------------------- | ------- | ---------------------------------------- | ----------------------------------------------------------------- |
+| `formats`                 | array   | `["json"]`                               | Output formats: `json`, `text`, `srt`, `vtt`, `md`                |
+| `include`                 | array   | `["transcript_raw", "transcript_punct"]` | What to include: `transcript_raw`, `transcript_punct`, `segments` |
+| `ts`                      | string  | `none`                                   | Timestamp format: `none`, `s`, `ms`, `clock`                      |
+| `summary`                 | string  | `both`                                   | Summary type: `bullets`, `abstract`, `both`, `none`               |
+| `summary_bullets_max`     | integer | `7`                                      | Maximum number of bullet points                                   |
+| `summary_lang`            | string  | `vi`                                     | Summary language code                                             |
+| `include_quality_metrics` | boolean | `false`                                  | Include quality metrics in response                               |
+| `include_diffs`           | boolean | `false`                                  | Include human-readable diffs                                      |
+
 ## Summary Field Format
 
 The `summary` field in the response can be returned in one of two formats:
@@ -562,12 +569,11 @@ When the summary is generated as a simple text summary, it's returned as a strin
 
 The format returned depends on the processing configuration and the content of the audio. Both formats provide the same essential information, just structured differently for optimal use cases.
 
-
 ## Response Examples
 
 ### 1. Default Response (No Query Parameters)
 
-When no query parameters are provided, the endpoint returns a minimal response with just the punctuated transcript and summary.
+When no query parameters are provided, the endpoint returns a minimal response with the raw transcript, punctuated transcript, and summary.
 
 **Request:**
 
@@ -611,7 +617,7 @@ And here's an example with the string format:
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?include=transcript_raw,segments" \
+curl -X POST "http://localhost:8000/pipeline?include=segments" \
   -F "audio_file=@interview.mp3" \
   -H "Accept: application/json"
 ```
@@ -665,7 +671,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=bullets&summary_bullets_max
 
 **Response:**
 
-```json
+````json
 {
   "summary": {
     "bullets": [
@@ -684,7 +690,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=bullets&summary_bullets_max
 curl -X POST "http://localhost:8000/pipeline" \
   -F "audio_file=@presentation.mp3" \
   -H "Accept: application/json"
-```
+````
 
 **Response:**
 
@@ -696,10 +702,11 @@ curl -X POST "http://localhost:8000/pipeline" \
 }
 ```
 
-  "segments": [],
-  "transcript_punct": "Quantum computing represents a fundamental paradigm shift in computation. Unlike classical bits, qubits can exist in multiple states simultaneously through superposition. The phenomenon of entanglement enables quantum teleportation and quantum communication. Quantum algorithms can solve certain problems exponentially faster than classical algorithms. However, current quantum computers are in the NISQ era, facing significant challenges in error correction and scalability."
+"segments": [],
+"transcript_punct": "Quantum computing represents a fundamental paradigm shift in computation. Unlike classical bits, qubits can exist in multiple states simultaneously through superposition. The phenomenon of entanglement enables quantum teleportation and quantum communication. Quantum algorithms can solve certain problems exponentially faster than classical algorithms. However, current quantum computers are in the NISQ era, facing significant challenges in error correction and scalability."
 }
-```
+
+````
 
 ### 4. Abstract Summary Only
 
@@ -709,7 +716,7 @@ curl -X POST "http://localhost:8000/pipeline" \
 curl -X POST "http://localhost:8000/pipeline?summary=abstract" \
   -F "audio_file=@presentation.mp3" \
   -H "Accept: application/json"
-```
+````
 
 **Response:**
 
@@ -1118,6 +1125,7 @@ curl -X POST "http://localhost:8000/pipeline" \
 5. **Consider language settings**:
    - Set `summary_lang` appropriately for your content
    - Note that transcription language depends on the ASR model
+
 # Progress Reporting
 
 The OmoAI API provides a progress reporting feature for long-running asynchronous tasks. This allows you to monitor the progress of a task as it moves through the processing pipeline.

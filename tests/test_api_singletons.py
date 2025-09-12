@@ -10,12 +10,7 @@ import sys
 import threading
 import asyncio
 
-# Add the project root to Python path for imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / "src"))
-
-from src.omoai.api.singletons import (
+from omoai.api.singletons import (
     ModelSingletons,
     get_asr_model,
     get_punctuation_processor,
@@ -23,7 +18,7 @@ from src.omoai.api.singletons import (
     preload_all_models,
     get_model_status
 )
-from src.omoai.api.services import get_service_status, warmup_services
+from omoai.api.services import get_service_status, warmup_services
 # services_enhanced was removed during refactor; service-mode and in-memory tests removed.
 
 
@@ -157,7 +152,7 @@ class TestAsyncAPISingletons(unittest.TestCase):
     def test_async_warmup(self):
         """Test async warmup functionality."""
         async def run_test():
-            with patch('src.omoai.api.singletons.preload_all_models') as mock_preload:
+            with patch('omoai.api.singletons.preload_all_models') as mock_preload:
                 mock_preload.return_value = {"asr": True, "punctuation": True, "summarization": True}
                 
                 result = await warmup_services()

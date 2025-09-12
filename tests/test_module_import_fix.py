@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from src.omoai.api.scripts.asr_wrapper import run_asr_script
-from src.omoai.api.scripts.postprocess_wrapper import run_postprocess_script
+from omoai.api.scripts.asr_wrapper import run_asr_script
+from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
 
 
 class TestModuleImportFix:

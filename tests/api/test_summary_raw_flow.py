@@ -2,7 +2,7 @@ import types
 
 
 def test_output_format_params_parse_raw():
-    from src.omoai.api.models import OutputFormatParams
+    from omoai.api.models import OutputFormatParams
 
     p = OutputFormatParams(return_summary_raw=True)
     assert p.return_summary_raw is True
@@ -69,3 +69,60 @@ def test_summarize_map_reduce_exposes_raw_multi_reduce(monkeypatch):
     assert "bullets" in out and isinstance(out["bullets"], list)
     assert "abstract" in out and isinstance(out["abstract"], str)
     assert out.get("raw") is not None  # joined batch outputs
+
+def test_asr_transcript_raw_exposed(monkeypatch, tmp_path):
+    import json
+    from unittest.mock import Mock, mock_open, patch
+    from pathlib import Path
+    from omoai.api import services
+    from omoai.api.models import ASRRequest
+
+    # Mock config and environment
+    mock_config = Mock()
+    mock_config.api.temp_dir = str(tmp_path)
+    mock_config.config_path = Path("/fake/config.yaml")
+    monkeypatch.setattr(services, "get_config", lambda: mock_config)
+
+    # Pretend preprocessed file exists
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+
+    # ASR output JSON contains 'text' key (raw transcript)
+    asr_output = {"segments": [], "text": "dummy raw transcript"}
+    mo = mock_open(read_data=json.dumps(asr_output))
+
+    # Mock the run_asr_script to not actually invoke external process
+    monkeypatch.setattr(services, "run_asr_script", lambda audio_path, output_path, config_path=None: None)
+
+    with patch("builtins.open", mo):
+        request = ASRRequest(preprocessed_path="/fake/audio.wav")
+        result = services.asr_service(request)
+        assert result.transcript_raw == "dummy raw transcript"
+
+import pytest
+from types import SimpleNamespace
+from unittest.mock import patch
+
+@pytest.mark.asyncio
+async def test_pipeline_exposes_transcript_raw():
+    """
+    Verify that the /pipeline endpoint response includes the transcript_raw field
+    when the pipeline service returns a raw transcript.
+    """
+    from omoai.api.main_controller import MainController
+
+    # Prepare dummy pipeline result and raw transcript
+    dummy_result = SimpleNamespace(
+        transcript_punct="This is punctuated.",
+        summary={"title": "T", "summary": "A", "points": ["p"]},
+        segments=[],
+        transcript_raw="internal_raw"
+    )
+    expected_raw = "dummy raw transcript"
+
+    async def fake_run_full_pipeline(data, params):
+        return dummy_result, expected_raw
+
+    # Patch the run_full_pipeline used by the controller
+    with patch("omoai.api.main_controller.run_full_pipeline", new=fake_run_full_pipeline):
+        response = await MainController().pipeline(data=object())
+        assert getattr(response, "transcript_raw", None) == expected_raw

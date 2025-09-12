@@ -3,7 +3,7 @@
 Test the complete fix for the summary parsing issue.
 """
 
-from src.omoai.api.services import _normalize_summary
+from omoai.api.services import _normalize_summary
 
 def test_fix_validation():
     """Test the complete fix with the actual API flow."""

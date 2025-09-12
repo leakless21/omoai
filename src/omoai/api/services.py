@@ -143,13 +143,7 @@ def run_postprocess_script(asr_json_path, output_path, config_path=None):
     )
 
 
-# Compatibility alias: some tests import modules under the "src.omoai" package path.
-import sys as _sys
-_module = _sys.modules.get(__name__)
-if _module is not None:
-    _sys.modules.setdefault("src.omoai.api.services", _module)
-    # Backwards compatibility: some tests and older code import services_enhanced
-    _sys.modules.setdefault("src.omoai.api.services_enhanced", _module)
+# Legacy import shim removed. Tests and consumers should import from 'omoai.api.services'.
 
 
 # Script-based service implementations (internal names)
@@ -207,6 +201,7 @@ def _asr_script(data: ASRRequest) -> ASRResponse:
 
         return ASRResponse(
             segments=list(asr_obj.get("segments", []) or []),
+            transcript_raw=asr_obj.get("text"),
         )
     except subprocess.CalledProcessError as e:
         raise AudioProcessingException(f"ASR processing failed: {e.stderr}")
@@ -254,7 +249,7 @@ def _postprocess_script(data: PostprocessRequest) -> PostprocessResponse:
 
 
 # Full pipeline script implementation
-async def _run_full_pipeline_script(data: PipelineRequest, output_params: Optional[OutputFormatParams] = None) -> PipelineResponse:
+async def _run_full_pipeline_script(data: PipelineRequest, output_params: Optional[OutputFormatParams] = None) -> tuple[PipelineResponse, Optional[str]]:
     """
     Run the full pipeline: preprocess -> ASR -> post-process.
     """
@@ -302,6 +297,7 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
             logger.info("Audio preprocessing completed successfully")
         except Exception as e:
             logger.error(f"Audio preprocessing failed: {str(e)}")
+            
             raise
 
         asr_json_path = Path(config.api.temp_dir) / f"asr_{os.urandom(8).hex()}.json"
@@ -318,6 +314,14 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
                     logger.info(f"Memory usage after ASR: {memory_info.rss / 1024 / 1024:.2f} MB")
             except Exception:
                 pass
+            # Extract raw ASR transcript from ASR output JSON for inclusion in final response
+            raw_transcript = None
+            try:
+                with open(asr_json_path, "r", encoding="utf-8") as f:
+                    asr_obj_for_raw = json.load(f)
+                raw_transcript = asr_obj_for_raw.get("text") or asr_obj_for_raw.get("transcript_raw") or None
+            except Exception:
+                raw_transcript = None
 
             logger.info("ASR processing completed successfully")
         except Exception as e:
@@ -396,7 +400,7 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
                 elif isinstance(diffs_data, dict):
                     diffs = HumanReadableDiff(**diffs_data)
 
-            return PipelineResponse(
+            response_obj = PipelineResponse(
                 summary=filtered_summary,
                 segments=filtered_segments,
                 transcript_punct=filtered_transcript_punct,
@@ -406,6 +410,7 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
                 if getattr(output_params, "return_summary_raw", None)
                 else None,
             )
+            return (response_obj, raw_transcript)
 
         quality_metrics = None
         diffs = None
@@ -441,7 +446,7 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
         # Normalize final_summary using _normalize_summary
         final_summary = _normalize_summary(final_summary)
 
-        return PipelineResponse(
+        response_obj = PipelineResponse(
             summary=final_summary,
             segments=list(final_obj.get("segments", []) or []),
             transcript_punct=str(final_obj.get("transcript_punct", "")) or None,
@@ -451,6 +456,7 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
             if (output_params and getattr(output_params, "return_summary_raw", None))
             else None,
         )
+        return (response_obj, raw_transcript)
 
 
 # Async wrappers and helpers
@@ -508,7 +514,7 @@ class _BytesUploadFile(UploadFile):
         return self._data[:size]
 
 
-async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Union[OutputFormatParams, dict]] = None) -> PipelineResponse:
+async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Union[OutputFormatParams, dict]] = None) -> tuple[PipelineResponse, Optional[str]]:
     if hasattr(data, "audio_file") and data.audio_file is not None:
         try:
             file_bytes = await data.audio_file.read()

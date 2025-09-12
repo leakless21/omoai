@@ -4,7 +4,7 @@ Detailed test to understand the exact parsing logic issue.
 """
 
 import re
-from src.omoai.api.services import _normalize_summary
+from omoai.api.services import _normalize_summary
 
 def test_step_by_step():
     """Test the parsing logic step by step."""

@@ -11,10 +11,7 @@ from unittest.mock import patch, MagicMock
 import sys
 import time
 
-# Add the project root to Python path for imports
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-sys.path.insert(0, str(project_root / "src"))
+# Path setup handled by tests/conftest.py
 
 
 class TestCompleteIntegration(unittest.TestCase):
@@ -36,9 +33,9 @@ class TestCompleteIntegration(unittest.TestCase):
     def test_complete_system_integration(self):
         """Test that all 4 completed steps work together."""
         # Import all our systems
-        from src.omoai.config import OmoAIConfig
+        from omoai.config import OmoAIConfig
         # run_full_pipeline_memory removed; use current pipeline modules and script-based services
-        from src.omoai.api.singletons import ModelSingletons
+        from omoai.api.singletons import ModelSingletons
         
         # Test that imports work
         self.assertTrue(True, "All imports successful")
@@ -97,7 +94,7 @@ class TestCompleteIntegration(unittest.TestCase):
 
     def test_error_handling_integration(self):
         """Test that error handling works across all systems."""
-        from src.omoai.config import OmoAIConfig
+        from omoai.config import OmoAIConfig
         from pydantic import ValidationError
         
         # Test configuration validation catches errors
@@ -115,7 +112,7 @@ class TestCompleteIntegration(unittest.TestCase):
 
     def test_security_defaults_integration(self):
         """Test that security defaults are properly enforced."""
-        from src.omoai.config import OmoAIConfig
+        from omoai.config import OmoAIConfig
         
         config_dict = {
             "paths": {

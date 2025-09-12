@@ -29,7 +29,7 @@ class TestCUDAMultiprocessingFix:
     def test_postprocess_wrapper_cuda_isolation(self):
         """Test that postprocess wrapper properly isolates CUDA context."""
         # Test the wrapper function with mock data
-        from src.omoai.api.scripts.postprocess_wrapper import run_postprocess_script
+        from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
         
         # Create temporary test files
         import tempfile
@@ -70,7 +70,7 @@ class TestCUDAMultiprocessingFix:
     def test_environment_variables_set(self):
         """Test that CUDA-related environment variables are properly set."""
         # Check that our fix sets the expected environment variables
-        from src.omoai.api.scripts.postprocess_wrapper import run_postprocess_script
+        from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
         
         # The wrapper should set these environment variables
         expected_vars = [

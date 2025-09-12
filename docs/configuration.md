@@ -69,7 +69,7 @@ api:
 
 ### Configuration Loader
 
-The API uses a dedicated configuration management system in `src/omoai/api/config.py`:
+The API uses a dedicated configuration management system in `omoai/config.py`:
 
 - **Automatic Discovery**: Searches for `config.yaml` in project root or current directory
 - **Type Safety**: Uses dataclasses for configuration validation
@@ -88,7 +88,7 @@ The API uses a dedicated configuration management system in `src/omoai/api/confi
 All API services now use the configuration system:
 
 ```python
-from src.omoai.api.config import get_config
+from omoai.config import get_config
 
 def service_function():
     config = get_config()
@@ -149,11 +149,11 @@ api:
 The project uses `uv` for virtual environment and dependency management. All commands should be run with `uv run` to ensure the correct environment:
 
 ```bash
-# Start the API server
-uv run litestar --app src.omoai.api.app:app run --host 0.0.0.0 --port 8000
+# Start the API server (uvicorn factory)
+uv run uvicorn omoai.api.app:create_app --factory --host 0.0.0.0 --port 8000
 
 # Test configuration loading
-uv run python -c "from src.omoai.api.config import get_config; print(get_config().api.max_body_size_mb)"
+uv run python -c "from omoai.config import get_config; print(get_config().api.max_body_size_mb)"
 
 # Run other scripts
 uv run python scripts/asr.py --help

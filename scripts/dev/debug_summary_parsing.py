@@ -4,7 +4,7 @@ Test script to reproduce and debug the summary parsing issue.
 """
 
 import re
-from src.omoai.api.services import _normalize_summary
+from omoai.api.services import _normalize_summary
 
 # Test case based on the problematic output from the issue
 problematic_summary = {

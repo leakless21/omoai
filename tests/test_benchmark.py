@@ -2,7 +2,7 @@ import pytest
 from litestar.testing import TestClient
 import time
 import os
-from src.omoai.api.app import create_app
+from omoai.api.app import create_app
 
 app = create_app()
 client = TestClient(app)
