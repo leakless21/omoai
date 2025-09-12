@@ -100,9 +100,6 @@ class MainController(Controller):
         params = output_params if output_params else None
         
         logger.info("Starting pipeline execution with enhanced service")
-        logger.info(f"Audio file size: {len(await data.audio_file.read())} bytes")
-        # Reset file position after reading
-        data.audio_file.file.seek(0)
         
         try:
             result = await run_full_pipeline(data, params)

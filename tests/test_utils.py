@@ -2,7 +2,8 @@ from pathlib import Path
 import types
 import numpy as np
 
-from omoai.pipeline.postprocess import _parse_time_to_seconds, _dedup_overlap, join_punctuated_segments
+# Migrated to pure utility module (no shim / no CUDA side effects)
+from omoai.pipeline.postprocess_core_utils import _parse_time_to_seconds, _dedup_overlap, join_punctuated_segments
 
 
 class MockTorchTensor:

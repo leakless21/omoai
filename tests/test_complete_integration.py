@@ -77,13 +77,12 @@ class TestCompleteIntegration(unittest.TestCase):
 
     def test_performance_optimizations_integration(self):
         """Test that PyTorch optimizations are properly integrated."""
-        # Test Step 1 optimizations are in place
-        from src.omoai.pipeline.asr import ChunkFormerASR
-        
+        # Test Step 1 optimizations are in place (pipeline module removed; keep env checks)
+
         # Test debug flag environment variable
         import os
         
-        # Test that debug flag is respected
+        # Test that debug flag env toggles can be set
         os.environ["OMOAI_DEBUG_EMPTY_CACHE"] = "false"
         self.assertEqual(os.environ.get("OMOAI_DEBUG_EMPTY_CACHE"), "false")
         

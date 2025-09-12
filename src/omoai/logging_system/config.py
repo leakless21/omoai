@@ -21,6 +21,9 @@ class LoggingConfig(BaseModel):
     format_type: str = Field(default="structured", description="Logging format: 'structured', 'json', or 'simple'")
     enable_console: bool = Field(default=True, description="Enable console output")
     enable_file: bool = Field(default=False, description="Enable file output")
+    # Optional human-readable file output (non-JSON)
+    enable_text_file: bool = Field(default=False, description="Enable text file output (human-readable)")
+    text_log_file: Optional[Path] = Field(default=None, description="Text log file path (non-JSON)")
     
     # File logging
     log_file: Optional[Path] = Field(default=None, description="Log file path")
@@ -64,12 +67,18 @@ class LoggingConfig(BaseModel):
             # Normalize alias to local logs directory
             log_file_env = os.path.join("logs", log_file_env[len("@logs/"):])
 
+        text_log_file_env = os.environ.get("OMOAI_LOG_TEXT_FILE")
+        if text_log_file_env and text_log_file_env.startswith("@logs/"):
+            text_log_file_env = os.path.join("logs", text_log_file_env[len("@logs/"):])
+
         return cls(
             level=os.environ.get("OMOAI_LOG_LEVEL", "INFO").upper(),
             format_type=os.environ.get("OMOAI_LOG_FORMAT", "structured"),
             enable_console=os.environ.get("OMOAI_LOG_CONSOLE", "true").lower() == "true",
             enable_file=os.environ.get("OMOAI_LOG_FILE_ENABLED", "false").lower() == "true",
             log_file=Path(log_file_env) if log_file_env else None,
+            enable_text_file=os.environ.get("OMOAI_LOG_TEXT_FILE_ENABLED", "false").lower() == "true",
+            text_log_file=Path(text_log_file_env) if text_log_file_env else None,
             rotation=os.environ.get("OMOAI_LOG_ROTATION") or None,
             retention=(
                 int(os.environ["OMOAI_LOG_RETENTION"]) if os.environ.get("OMOAI_LOG_RETENTION", "").isdigit() else os.environ.get("OMOAI_LOG_RETENTION")
@@ -87,6 +96,48 @@ class LoggingConfig(BaseModel):
             debug_mode=os.environ.get("OMOAI_DEBUG", "false").lower() == "true",
             quiet_mode=os.environ.get("OMOAI_QUIET", "false").lower() == "true",
         )
+
+def _add_json_sink_with_custom_serializer(
+    logger_obj, file_path: str, level_name: str, rotation, retention, compression, enqueue: bool
+):
+    """Add JSON sink using deterministic flat serializer to maintain test contract."""
+    from .serializers import flat_json_serializer
+    try:
+        return logger_obj.add(
+            file_path,
+            level=level_name,
+            format=flat_json_serializer,  # Custom deterministic serializer
+            serialize=False,  # We handle serialization ourselves
+            rotation=rotation,
+            retention=retention,
+            compression=compression,
+            enqueue=enqueue,
+            backtrace=False,
+            diagnose=False,
+        )
+    except (PermissionError, OSError):
+        # Sandbox environments may deny multiprocessing primitives used by enqueue
+        return logger_obj.add(
+            file_path,
+            level=level_name,
+            format=flat_json_serializer,
+            serialize=False,
+            rotation=rotation,
+            retention=retention,
+            compression=compression,
+            enqueue=False,
+            backtrace=False,
+            diagnose=False,
+        )
+
+
+def get_level_name(config: LoggingConfig) -> str:
+    """Get textual level name suitable for sinks like Loguru."""
+    if config.debug_mode:
+        return "DEBUG"
+    if config.quiet_mode:
+        return "ERROR"
+    return (config.level or "INFO").upper()
     
     def get_log_level(self) -> int:
         """Get numeric log level."""
@@ -190,7 +241,7 @@ def configure_python_logging(config: LoggingConfig) -> None:
     except Exception:
         pass
 
-    level_name = config.get_level_name()
+    level_name = get_level_name(config)
 
     # Console sink
     if config.enable_console and not config.quiet_mode:
@@ -211,22 +262,45 @@ def configure_python_logging(config: LoggingConfig) -> None:
             diagnose=False,
         )
 
-    # File sink (JSON)
-    if config.enable_file and config.log_file:
-        config.log_file.parent.mkdir(parents=True, exist_ok=True)
+    # File sink (human-readable text)
+    if config.enable_text_file and config.text_log_file:
+        config.text_log_file.parent.mkdir(parents=True, exist_ok=True)
         rotation = config.rotation or config.max_file_size
         retention = config.retention if config.retention is not None else config.backup_count
+        text_fmt = (
+            "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
+            "{level: <8} | "
+            "{name} | "
+            "{message} | "
+            "{extra}"
+        )
         _add_sink_with_fallback(
             _logger,
-            str(config.log_file),
+            str(config.text_log_file),
             level=level_name,
-            serialize=True,
+            format=text_fmt,
+            colorize=False,
             rotation=rotation,
             retention=retention,
             compression=config.compression,
             enqueue=config.enqueue,
             backtrace=False,
             diagnose=False,
+        )
+
+    # File sink (JSON) with deterministic schema
+    if config.enable_file and config.log_file:
+        config.log_file.parent.mkdir(parents=True, exist_ok=True)
+        rotation = config.rotation or config.max_file_size
+        retention = config.retention if config.retention is not None else config.backup_count
+        _add_json_sink_with_custom_serializer(
+            _logger,
+            str(config.log_file),
+            get_level_name(config),
+            rotation,
+            retention,
+            config.compression,
+            config.enqueue,
         )
 
     # Configure third-party loggers (levels) via stdlib
@@ -265,3 +339,4 @@ def _configure_third_party_loggers(config: LoggingConfig) -> None:
         
         # Reduce pydantic validation noise in production
         logging.getLogger("pydantic.main").setLevel(logging.WARNING)
+

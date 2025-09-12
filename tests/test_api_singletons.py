@@ -23,6 +23,7 @@ from src.omoai.api.singletons import (
     preload_all_models,
     get_model_status
 )
+from src.omoai.api.services import get_service_status, warmup_services
 # services_enhanced was removed during refactor; service-mode and in-memory tests removed.
 
 

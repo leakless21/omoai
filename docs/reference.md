@@ -27,10 +27,11 @@ The OmoAI API provides a RESTful interface for processing audio files through a 
 - **Post-processing**: Apply punctuation, capitalization, and generate summaries
 - **Full Pipeline**: Execute the entire workflow in a single request
 
-The API features dual-mode operation:
+The API uses a robust, script-based pipeline for all stages:
 
-- **High-performance mode**: Uses in-memory processing with cached models for maximum speed
-- **Robust mode**: Falls back to script-based processing for maximum compatibility
+- Preprocess via ffmpeg
+- ASR via the `scripts.asr` module
+- Postprocess via the `scripts.post` module
 
 ## Authentication
 
@@ -332,12 +333,7 @@ curl -X GET "http://localhost:8000/health"
     "temp_dir": "accessible at /tmp",
     "config_loaded": "yes",
     "max_body_size": "100MB",
-    "service_mode": "auto",
-    "in_memory_available": true,
-    "models": {
-      "asr_model": "loaded",
-      "llm_model": "loaded"
-    }
+    "models": {"status": "script_based"}
   }
 }
 ```
@@ -466,57 +462,9 @@ api:
   request_timeout_seconds: 300
 ```
 
-## Service Modes
+## Service Mode
 
-The API operates in three service modes:
-
-### Auto Mode (Default)
-
-Automatically selects the best available service:
-
-- Uses high-performance in-memory processing when models are loaded
-- Falls back to script-based processing if models are unavailable
-- Provides the best balance of performance and reliability
-
-### Memory Mode
-
-Forces the use of high-performance in-memory processing:
-
-- Maximum performance with cached models
-- Lower latency for consecutive requests
-- May fail if models cannot be loaded
-
-### Script Mode
-
-Forces the use of script-based processing:
-
-- Maximum compatibility with different environments
-- More robust to model loading issues
-- Slower performance due to process overhead
-
-### Configuring Service Mode
-
-Service mode can be configured in three ways:
-
-1. **Configuration file** (`config.yaml`):
-
-```yaml
-api:
-  service_mode: "auto" # "auto", "memory", or "script"
-```
-
-2. **Environment variable**:
-
-```bash
-export OMOAI_SERVICE_MODE=memory
-```
-
-3. **Runtime override** (for testing):
-
-```python
-from src.omoai.api.services_enhanced import force_service_mode
-await force_service_mode("script")
-```
+There is no in-memory service mode. The API always uses the script-based pipeline for reliability and predictable resource usage.
 
 ## OpenAPI Documentation
 

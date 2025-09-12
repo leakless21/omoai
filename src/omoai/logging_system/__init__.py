@@ -6,7 +6,7 @@ performance metrics, error tracking, and request tracing capabilities.
 """
 
 from .config import LoggingConfig, get_logging_config
-from .formatters import JSONFormatter, StructuredFormatter
+from .serializers import JSONFormatter, StructuredFormatter
 from .logger import (
     get_logger, setup_logging, log_performance, log_error,
     performance_context, timed, with_request_context, generate_request_id,

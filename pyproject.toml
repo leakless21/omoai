@@ -18,14 +18,15 @@ dependencies = [
     "pillow>=11.3.0",
     "pydub>=0.25.1",
     "pydantic-settings>=2.0.0",
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.1.0",
     "pyyaml>=6.0.2",
     "questionary>=2.1.0",
     "sentencepiece>=0.2.0",
     "textgrid>=1.6.1",
     "tqdm>=4.67.1",
-    
+    "nvidia-ml-py>=13.580.82",
+    "psutil>=7.0.0",
+    "torchaudio==2.7.1",
+    "vllm==0.10.1.1",
 ]
 
 

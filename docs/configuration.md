@@ -204,12 +204,4 @@ This provides much better flexibility and maintainability for different deployme
 
 ### Service Mode
 
-The `api.service_mode` setting in `config.yaml` controls which service implementation the application uses for its core operations. This setting allows users to choose between performance, robustness, and automatic selection.
-
-There are three possible values for `api.service_mode`:
-
-- **`"auto"`**: This is the default setting. When enabled, the system automatically selects the best available service. It will use the high-performance in-memory v2 services if they are healthy and available; otherwise, it will fall back to the slower but more robust script-based v1 services. This option provides a good balance between performance and reliability without requiring manual intervention.
-
-- **`"memory"`**: This setting forces the use of the high-performance, in-memory v2 services. These services are optimized for speed and low latency, making them ideal for production environments where performance is critical. However, they may be less resilient to certain types of errors or resource constraints compared to the script-based services.
-
-- **`"script"`**: This setting forces the use of the slower, but more robust, script-based v1 services. These services are generally more resilient and can handle a wider variety of edge cases and error conditions. They are a good choice for development, testing, or in environments where stability is prioritized over raw performance.
+The application does not provide an in-memory mode. All stages run via script-based services for reliability and predictable resource usage. Any previous `api.service_mode` options are no longer applicable.

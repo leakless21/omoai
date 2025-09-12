@@ -17,7 +17,16 @@ import sys
 
 from litestar.datastructures import UploadFile
 
+# Use centralized script wrappers; keep names for backward compatibility
+from omoai.api.scripts.asr_wrapper import run_asr_script as _run_asr_script
+from omoai.api.scripts.postprocess_wrapper import (
+    run_postprocess_script as _run_postprocess_script,
+)
+
 from omoai.config.schemas import get_config
+from omoai.pipeline.postprocess_core_utils import (
+    _parse_vietnamese_labeled_text as _parse_labeled_summary,
+)
 from omoai.api.exceptions import AudioProcessingException
 from omoai.api.models import (
     PipelineRequest,
@@ -37,154 +46,48 @@ from omoai.api.models import (
 
 
 def _normalize_summary(raw_summary: Any) -> dict:
-    """
-    Normalize summary output into a structured dict:
-    {
-      "title": str,
-      "summary": str,
-      "points": List[str]
-    }
-    """
-    import re
-    import unicodedata
-
-    def _strip_label_re(s: str):
-        if not isinstance(s, str):
-            return s or ""
-        s = s.strip()
-        return re.sub(r"^(?:\s*(?:Tiêu đề|Tóm tắt|Điểm chính|Title|Summary)\s*:?\s*)+", "", s, flags=re.IGNORECASE).strip()
-
-    def _parse_text_summary(text: str) -> dict:
-        text = (text or "").strip()
-        title = ""
-        abstract = ""
-        points: List[str] = []
-
-        # Normalize text for consistent character matching
-        normalized_text = unicodedata.normalize('NFC', text)
-        
-        # Extract title using robust pattern matching
-        title_match = re.search(r"(?i)tiêu đề:\s*(.+?)(?=\n|$)", normalized_text)
-        if title_match:
-            title = title_match.group(1).strip()
-        else:
-            title_match = re.search(r"(?i)title:\s*(.+?)(?=\n|$)", normalized_text)
-            if title_match:
-                title = title_match.group(1).strip()
-
-        # Extract abstract using robust pattern matching
-        abstract_match = re.search(
-            r"(?i)tóm tắt:\s*(.+?)(?=\n\s*điểm chính|\n\s*điểm chính:|\n-|$)",
-            normalized_text,
-            flags=re.MULTILINE | re.DOTALL
-        )
-        if abstract_match:
-            abstract = abstract_match.group(1).strip()
-        else:
-            abstract_match = re.search(
-                r"(?i)summary:\s*(.+?)(?=\n\s*điểm chính|\n\s*điểm chính:|\n-|$)",
-                normalized_text,
-                flags=re.MULTILINE | re.DOTALL
-            )
-            if abstract_match:
-                abstract = abstract_match.group(1).strip()
-            else:
-                # Fallback: use first paragraph
-                parts = text.split("\n\n")
-                if parts:
-                    abstract = parts[0].strip()
-
-        # Extract points using robust pattern matching
-        points_match = re.search(
-            r"(?i)điểm chính:\s*(.*)",
-            normalized_text,
-            flags=re.MULTILINE | re.DOTALL
-        )
-        if points_match:
-            block = points_match.group(1)
-            for line in block.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("-"):
-                    points.append(line.lstrip("-").strip())
-                else:
-                    points.append(line)
-        else:
-            # Fallback: extract bullet points from entire text
-            for line in text.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("-"):
-                    points.append(line.lstrip("-").strip())
-
-        # Clean up extracted content
-        title = _strip_label_re(title)
-        abstract = _strip_label_re(abstract)
-
-        # If nothing was extracted, use the entire text as abstract
-        if not (title or abstract or points):
-            abstract = text
-
-        return {"title": title, "summary": abstract, "abstract": abstract, "points": points}
-
+    """Normalize summary structure using core parsing utils."""
+    # If dict-like, coerce keys and shapes
     if isinstance(raw_summary, dict):
-        title = raw_summary.get("title") or raw_summary.get("Tiêu đề") or raw_summary.get("tiêu đề") or raw_summary.get("Title") or ""
-        abstract = raw_summary.get("summary") or raw_summary.get("abstract") or raw_summary.get("Tóm tắt") or raw_summary.get("tóm tắt") or ""
-        points = raw_summary.get("points") or raw_summary.get("bullets") or raw_summary.get("Bullets") or []
+        title = raw_summary.get("title") or raw_summary.get("Tiêu đề") or raw_summary.get("Title") or ""
+        abstract = (
+            raw_summary.get("summary") or raw_summary.get("abstract") or raw_summary.get("Tóm tắt") or ""
+        )
+        points = raw_summary.get("points") or raw_summary.get("bullets") or []
 
-        combined_text = ""
-        if title:
-            combined_text += str(title).strip() + "\n\n"
-        if abstract:
-            combined_text += str(abstract).strip()
-
+        # Coerce points that may arrive as a single string
         if isinstance(points, str):
-            pts: List[str] = []
-            for line in points.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                if line.startswith("-"):
-                    pts.append(line.lstrip("-").strip())
-                else:
-                    pts.append(line)
-            points = pts
+            points = [p.lstrip("-").strip() for p in points.splitlines() if p.strip()]
 
-        # Check if the abstract contains Vietnamese labels that need parsing
-        if abstract and (re.search(r"(?i)tiêu đề:|tóm tắt:|điểm chính", abstract, flags=re.MULTILINE)):
-            # Parse the abstract text to extract structured content
-            parsed = _parse_text_summary(abstract)
-            return {
-                "title": parsed.get("title", "") or _strip_label_re(title),
-                "summary": parsed.get("summary", "") or _strip_label_re(abstract),
-                "abstract": parsed.get("summary", "") or _strip_label_re(abstract),
-                "points": parsed.get("points", []) or list(points or [])
-            }
-        
-        # Also check combined text for labels (original logic)
-        if combined_text and (re.search(r"(?i)t[oó]m\s*t[aá]t|đi[eê]m\s*ch[ií]nh|^-", combined_text, flags=re.MULTILINE)):
-            parsed = _parse_text_summary(combined_text)
-            return {
-                "title": parsed.get("title", "") or _strip_label_re(title),
-                "summary": parsed.get("summary", "") or _strip_label_re(abstract),
-                "abstract": parsed.get("summary", "") or _strip_label_re(abstract),
-                "points": parsed.get("points", []) or list(points or [])
-            }
+        # If the abstract contains labeled text, let core parser extract canonical parts
+        if isinstance(abstract, str):
+            parsed = _parse_labeled_summary(abstract)
+            if parsed:
+                return {
+                    "title": parsed.get("title", "") or str(title).strip(),
+                    "summary": parsed.get("abstract", ""),
+                    "abstract": parsed.get("abstract", ""),
+                    "points": parsed.get("points", []) or list(points or []),
+                }
 
-        title = _strip_label_re(title)
-        abstract = _strip_label_re(abstract)
-        clean_points: List[str] = []
-        for p in list(points or []):
-            if not isinstance(p, str):
-                continue
-            clean_points.append(_strip_label_re(p) if _strip_label_re(p) else p.strip())
-        return {"title": title, "summary": abstract, "abstract": abstract, "points": clean_points}
+        return {
+            "title": str(title).strip(),
+            "summary": str(abstract).strip(),
+            "abstract": str(abstract).strip(),
+            "points": list(points or []),
+        }
 
+    # If raw string, parse labeled text
     if isinstance(raw_summary, str):
-        return _parse_text_summary(raw_summary)
-
+        parsed = _parse_labeled_summary(raw_summary)
+        if parsed:
+            return {
+                "title": parsed.get("title", ""),
+                "summary": parsed.get("abstract", ""),
+                "abstract": parsed.get("abstract", ""),
+                "points": parsed.get("points", []),
+            }
+    # Fallback
     return {"title": "", "summary": "", "abstract": "", "points": []}
 
 
@@ -229,81 +132,15 @@ def run_preprocess_script(input_path, output_path):
 
 
 def run_asr_script(audio_path, output_path, config_path=None):
-    """Fallback ASR implementation using subprocess call to legacy script."""
-    import subprocess
-    import sys
-    from pathlib import Path
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    project_root = Path(__file__).resolve().parents[3]
-
-    cmd = [sys.executable, "-m", "scripts.asr", "--audio", str(audio_path), "--out", str(output_path)]
-    if config_path:
-        cmd.extend(["--config", str(config_path)])
-
-    logger.info("ASR command", extra={"cmd": " ".join(cmd), "cwd": str(project_root)})
-
-    try:
-        result = subprocess.run(cmd, check=True, cwd=project_root, capture_output=True, text=True)
-        logger.info(
-            "ASR completed successfully",
-            extra={"return_code": result.returncode, "stdout": (result.stdout or "").strip()},
-        )
-    except subprocess.CalledProcessError as e:
-        logger.error(
-            "ASR failed",
-            exc_info=e,
-            extra={
-                "return_code": e.returncode,
-                "stderr": (e.stderr or "").strip(),
-                "stdout": (e.stdout or "").strip(),
-            },
-        )
-        raise AudioProcessingException(f"ASR processing failed: {e.stderr}")
-    except Exception as e:
-        logger.error("ASR failed with unexpected error", exc_info=e, extra={"error": str(e)})
-        raise AudioProcessingException(f"ASR processing failed: {str(e)}")
+    """Delegate to centralized ASR wrapper (backwards-compatible symbol)."""
+    return _run_asr_script(audio_path=audio_path, output_path=output_path, config_path=config_path)
 
 
 def run_postprocess_script(asr_json_path, output_path, config_path=None):
-    """Fallback postprocess implementation using subprocess call to legacy script."""
-    import subprocess
-    import sys
-    from pathlib import Path
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    project_root = Path(__file__).resolve().parents[3]
-
-    cmd = [sys.executable, "-m", "scripts.post", "--asr-json", str(asr_json_path), "--out", str(output_path)]
-    if config_path:
-        cmd.extend(["--config", str(config_path)])
-
-    logger.info("Postprocess command", extra={"cmd": " ".join(cmd), "cwd": str(project_root)})
-
-    try:
-        result = subprocess.run(cmd, check=True, cwd=project_root, capture_output=True, text=True)
-        logger.info(
-            "Postprocess completed successfully",
-            extra={"return_code": result.returncode, "stdout": (result.stdout or "").strip()},
-        )
-    except subprocess.CalledProcessError as e:
-        logger.error(
-            "Postprocess failed",
-            exc_info=e,
-            extra={
-                "return_code": e.returncode,
-                "stderr": (e.stderr or "").strip(),
-                "stdout": (e.stdout or "").strip(),
-            },
-        )
-        raise AudioProcessingException(f"Post-processing failed: {e.stderr}")
-    except Exception as e:
-        logger.error("Postprocess failed with unexpected error", exc_info=e, extra={"error": str(e)})
-        raise AudioProcessingException(f"Post-processing failed: {str(e)}")
+    """Delegate to centralized postprocess wrapper (backwards-compatible symbol)."""
+    return _run_postprocess_script(
+        asr_json_path=asr_json_path, output_path=output_path, config_path=config_path
+    )
 
 
 # Compatibility alias: some tests import modules under the "src.omoai" package path.
@@ -373,6 +210,9 @@ def _asr_script(data: ASRRequest) -> ASRResponse:
         )
     except subprocess.CalledProcessError as e:
         raise AudioProcessingException(f"ASR processing failed: {e.stderr}")
+    except RuntimeError as e:
+        # Raised by centralized wrapper on non-zero return codes
+        raise AudioProcessingException(f"ASR processing failed: {e}")
     except Exception as e:
         raise AudioProcessingException(f"Unexpected error during ASR: {str(e)}")
 
@@ -406,6 +246,9 @@ def _postprocess_script(data: PostprocessRequest) -> PostprocessResponse:
         )
     except subprocess.CalledProcessError as e:
         raise AudioProcessingException(f"Post-processing failed: {e.stderr}")
+    except RuntimeError as e:
+        # Raised by centralized wrapper on non-zero return codes
+        raise AudioProcessingException(f"Post-processing failed: {e}")
     except Exception as e:
         raise AudioProcessingException(f"Unexpected error during post-processing: {str(e)}")
 
@@ -508,8 +351,13 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
             logger.error(f"Failed to load final output: {str(e)}")
             raise
 
+        # Canonicalize summary keys: bullets -> points at source
+        final_summary = final_obj.get("summary", {})
+        if isinstance(final_summary, dict) and "bullets" in final_summary:
+            final_summary["points"] = final_summary.pop("bullets")
+
         if output_params:
-            filtered_summary = final_obj.get("summary", {})
+            filtered_summary = final_summary
             filtered_segments = final_obj.get("segments", [])
             filtered_transcript_punct = final_obj.get("transcript_punct", "")
 
@@ -517,12 +365,13 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
                 if output_params.summary == "none":
                     filtered_summary = {}
                 elif output_params.summary == "bullets":
-                    filtered_summary = {"bullets": filtered_summary.get("bullets", [])}
+                    # Canonical shape: only "points", never "bullets"
+                    filtered_summary = {"points": filtered_summary.get("points", [])}
                 elif output_params.summary == "abstract":
                     filtered_summary = {"abstract": filtered_summary.get("abstract", "")}
 
-                if output_params.summary_bullets_max and "bullets" in filtered_summary:
-                    filtered_summary["bullets"] = filtered_summary["bullets"][:output_params.summary_bullets_max]
+                if output_params.summary_bullets_max and "points" in filtered_summary:
+                    filtered_summary["points"] = filtered_summary["points"][:output_params.summary_bullets_max]
 
             if output_params.include:
                 include_set = set(output_params.include)
@@ -585,6 +434,10 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
                 "Post-processing produced unexpected summary format; expected dict with keys 'title','summary','points'"
             )
 
+        # Canonicalize summary keys: bullets -> points
+        if isinstance(final_summary, dict):
+            if "bullets" in final_summary and "points" not in final_summary:
+                final_summary["points"] = final_summary.pop("bullets")
         # Normalize final_summary using _normalize_summary
         final_summary = _normalize_summary(final_summary)
 
@@ -624,8 +477,23 @@ def asr_service(data: ASRRequest):
         return _asr_script(data)
 
 
+def _postprocess_service_sync(data: PostprocessRequest, output_params: Optional[dict] = None) -> PostprocessResponse:
+    """Synchronous implementation of postprocess service."""
+    return _postprocess_script(data)
+
+
 async def postprocess_service(data: PostprocessRequest, output_params: Optional[dict] = None) -> PostprocessResponse:
-    return await asyncio.to_thread(_postprocess_script, data)
+    """
+    Dual-mode postprocess service helper.
+    - If called from sync code (no running event loop), executes synchronously.
+    - If called from async code, offloads to thread and returns awaitable.
+    """
+    try:
+        asyncio.get_running_loop()
+        return await asyncio.to_thread(_postprocess_service_sync, data, output_params)
+    except RuntimeError:
+        # No running loop - synchronous context (e.g., tests)
+        return _postprocess_service_sync(data, output_params)
 
 
 class _BytesUploadFile(UploadFile):

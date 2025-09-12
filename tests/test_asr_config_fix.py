@@ -13,7 +13,7 @@ from src.omoai.api.exceptions import AudioProcessingException
 def test_asr_script_with_valid_config():
     """Test that ASR script runs successfully with valid configuration."""
     # Use the existing test audio file
-    test_audio_path = Path(__file__).parent.parent / "src" / "omoai" / "chunkformer" / "data" / "common_voice_vi_23397238.wav"
+    test_audio_path = Path(__file__).parent.parent / "src" / "chunkformer" / "data" / "common_voice_vi_23397238.wav"
     
     # Skip test if audio file doesn't exist
     if not test_audio_path.exists():
@@ -75,7 +75,7 @@ def test_asr_script_with_valid_config():
 def test_asr_script_with_invalid_config():
     """Test that ASR script fails gracefully with invalid configuration."""
     # Use the existing test audio file
-    test_audio_path = Path(__file__).parent.parent / "src" / "omoai" / "chunkformer" / "data" / "common_voice_vi_23397238.wav"
+    test_audio_path = Path(__file__).parent.parent / "src" / "chunkformer" / "data" / "common_voice_vi_23397238.wav"
     
     # Skip test if audio file doesn't exist
     if not test_audio_path.exists():
@@ -117,7 +117,7 @@ paths:
 def test_asr_script_error_logging():
     """Test that ASR script provides detailed error information."""
     # Use the existing test audio file
-    test_audio_path = Path(__file__).parent.parent / "src" / "omoai" / "chunkformer" / "data" / "common_voice_vi_23397238.wav"
+    test_audio_path = Path(__file__).parent.parent / "src" / "chunkformer" / "data" / "common_voice_vi_23397238.wav"
     
     # Skip test if audio file doesn't exist
     if not test_audio_path.exists():

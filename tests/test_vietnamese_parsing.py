@@ -10,7 +10,8 @@ import os
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from omoai.pipeline.postprocess import _parse_vietnamese_labeled_text
+# Import from core utils (pure helpers, no deprecated shim)
+from omoai.pipeline.postprocess_core_utils import _parse_vietnamese_labeled_text
 
 
 class TestVietnameseParsing:

@@ -3,14 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import os
-# Ensure TORCH_CUDA_ARCH_LIST is set before importing CUDA-related modules
-os.environ['TORCH_CUDA_ARCH_LIST'] = '8.6'
 import sys
 from datetime import datetime, timezone
-import yaml
+ 
 
-from omoai.pipeline.preprocess import preprocess_file_to_wav_bytes
-from omoai.pipeline.asr import run_asr_inference
+from omoai.api.services import run_preprocess_script
+from omoai.api.scripts.asr_wrapper import run_asr_script
 from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
 
 def _repo_root() -> Path:
@@ -27,103 +25,41 @@ def _default_config_path() -> Path:
 
 def run_pipeline(audio_path: Path, out_dir: Path, model_dir: Path | None, config_path: Path | None) -> int:
     cfg_path = config_path or _default_config_path()
-    with open(cfg_path, "r") as f:
-        config = yaml.safe_load(f)
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Preprocess to 16kHz mono PCM16 WAV
+    # 1) Preprocess to 16kHz mono PCM16 WAV (script-based)
     preprocessed = out_dir / "preprocessed.wav"
     try:
-        wav_bytes = preprocess_file_to_wav_bytes(audio_path)
         preprocessed.parent.mkdir(parents=True, exist_ok=True)
-        with open(preprocessed, 'wb') as f:
-            f.write(wav_bytes)
+        run_preprocess_script(input_path=audio_path, output_path=preprocessed)
     except Exception as e:
         print(f"[orchestrator] ffmpeg failed: {e}")
         return 1
 
-    # 2) ASR
+    # 2) ASR (script-based)
     asr_json = out_dir / "asr.json"
-    asr_config = config.get("asr", {})
-    paths_config = config.get("paths", {})
-    model_checkpoint = model_dir or Path(paths_config.get("chunkformer_checkpoint"))
-
     try:
-        # Run ASR inference using the new API
-        # Load preprocessed WAV into a torch tensor (float32). Try soundfile first, fall back to wave.
-        try:
-            import soundfile as sf
-            import numpy as np
-            import torch
-            data, sr = sf.read(str(preprocessed), dtype='float32')
-            if data.ndim > 1:
-                data = data.mean(axis=1)
-            audio_tensor = torch.from_numpy(data).float()
-        except Exception:
-            try:
-                import wave
-                import numpy as np
-                import torch
-                with wave.open(str(preprocessed), 'rb') as wf:
-                    frames = wf.readframes(wf.getnframes())
-                    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-                    if wf.getnchannels() > 1:
-                        audio = audio.reshape(-1, wf.getnchannels()).mean(axis=1)
-                    audio_tensor = torch.from_numpy(audio).float()
-            except Exception as e:
-                raise RuntimeError(f"Failed to load preprocessed WAV into tensor: {e}")
-        # run_asr_inference expects a tensor; sample rate is 16000 for preprocessed audio
-        asr_result = run_asr_inference(
-            audio_input=audio_tensor,
-            config={
-                "asr": {
-                    "chunk_size": asr_config.get("chunk_size", 64),
-                    "left_context_size": asr_config.get("left_context_size", 128),
-                    "right_context_size": asr_config.get("right_context_size", 128),
-                    "total_batch_duration_s": asr_config.get("total_batch_duration_s", 1800),
-                    "autocast_dtype": asr_config.get("autocast_dtype", "fp16"),
-                    "device": asr_config.get("device", "auto"),
-                },
-                "paths": {
-                    "chunkformer_checkpoint": str(model_checkpoint),
-                }
-            },
-            sample_rate=16000,
-        )
-        
-        # Save ASR result to JSON file
-        asr_output = {
-            "audio": {
-                "sr": asr_result.sample_rate,
-                "path": str(preprocessed.resolve()),
-                "duration_s": asr_result.audio_duration_seconds,
-            },
-            "segments": [
-                {
-                    "start": seg.start,
-                    "end": seg.end,
-                    "text_raw": seg.text,
-                }
-                for seg in asr_result.segments
-            ],
-            "transcript_raw": asr_result.transcript,
-            "metadata": asr_result.metadata,
-        }
-        
-        asr_json.parent.mkdir(parents=True, exist_ok=True)
-        with open(asr_json, "w", encoding="utf-8") as f:
-            import json
-            json.dump(asr_output, f, ensure_ascii=False, indent=2)
+        run_asr_script(audio_path=preprocessed, output_path=asr_json, config_path=cfg_path)
     except Exception as e:
         print(f"[orchestrator] ASR failed: {e}")
         return 2
+
+    # Attempt to free GPU VRAM before launching post-process (vLLM)
+    try:
+        import gc  # type: ignore
+        import torch  # type: ignore
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
     # 3) Post-process (punctuation + summary) via script-based pipeline
     final_json = out_dir / "final.json"
     try:
         # Call the script-based postprocess (scripts/post.py) via wrapper
-        run_postprocess_script(asr_json_path=asr_json, output_path=final_json, config_path=None)
+        run_postprocess_script(asr_json_path=asr_json, output_path=final_json, config_path=cfg_path)
 
         # Read final JSON produced by the script and present as output
         import json

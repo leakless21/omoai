@@ -1,11 +1,12 @@
 # OmoAI Documentation
 
-This directory contains all the documentation for the OmoAI project.
+This directory contains project documentation for OmoAI.
 
 ## Table of Contents
 
-- [API Reference](reference.md): Comprehensive API documentation.
-- [Architecture](architecture.md): System architecture and design.
-- [Development](development.md): Development best practices and testing report.
-- [Project](project.md): Project requirements and gap analysis.
 - [Configuration](configuration.md): Configuration management.
+- [API Reference](reference.md): API endpoints and models.
+- [Loguru Migration](loguru-migration.md): Centralized logging system.
+- [CUDA Multiprocessing Fix](CUDA_MULTIPROCESSING_FIX.md): Notes on CUDA/vLLM spawn.
+- [Gap Analysis](GAP_ANALYSIS.md): Requirements and gaps.
+- [Debug Plan](debug_plan.md): Investigation notes and guidance.

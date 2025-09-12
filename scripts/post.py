@@ -3,9 +3,24 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Callable
+from omoai.pipeline.postprocess_core_utils import (
+    _parse_time_to_seconds as _parse_time_to_seconds,
+    _dedup_overlap as _dedup_overlap,
+)
 import gc
 import re
 import textwrap
+
+# Import Policy:
+# This module is now import-safe for vLLM child processes spawned under the 'spawn'
+# method. We only wanted to block ad-hoc in-process library usage that would
+# initialize vLLM/CUDA in the API parent before the dedicated subprocess.
+#
+# Instead of raising ImportError (which breaks vLLM internal spawned workers),
+# we set a flag that can be inspected if needed. Dynamic imports from pipeline
+# utilities should be removed; those callers should rely on the subprocess path.
+SAFE_SCRIPT_IMPORT = (__name__ != "__main__")
+
 try:  # optional torch for CUDA cache clearing; not required in dry-run
     import torch  # type: ignore
 except Exception:  # pragma: no cover - keep runnable without torch
@@ -32,13 +47,13 @@ try:  # optional progress bar
 except Exception:  # pragma: no cover - keep runnable without tqdm
     tqdm = None  # type: ignore
 
-try:  # optional import to allow GPU-free tests without vllm installed
-    from vllm import LLM, SamplingParams  # type: ignore
-except Exception:  # pragma: no cover - tests won't exercise vllm paths
-    LLM = Any  # type: ignore
-    class SamplingParams:  # type: ignore
-        def __init__(self, *args: Any, **kwargs: Any) -> None:  # noqa: D401
-            pass
+# Defer vLLM import until inside build_llm() after multiprocessing start method is safely set.
+VLLM_AVAILABLE: Optional[bool] = None  # resolved lazily in main()
+
+# Placeholder SamplingParams (never used before real vLLM import; kept to satisfy type references)
+class SamplingParams:  # type: ignore
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.__dict__.update(kwargs)
 
 
 def load_asr_json(path: Path) -> Dict[str, Any]:
@@ -400,65 +415,7 @@ def summarize_text(llm: Any, text: str, system_prompt: str, temperature: float =
     return parsed_with_raw
 
 
-def _dedup_overlap(prev: str, nxt: str, max_tokens: int = 8) -> str:
-    """Remove duplicated token overlap between previous buffer tail and next string head."""
-    pt = prev.strip().split()
-    nt = nxt.strip().split()
-    max_k = min(max_tokens, len(pt), len(nt))
-    for k in range(max_k, 0, -1):
-        if pt[-k:] == nt[:k]:
-            return " ".join(nt[k:])
-    return nxt
-
-
-def _parse_time_to_seconds(value: Any) -> Optional[float]:
-    """Parse a timestamp value (float, int, or string) into seconds.
-
-    Supports:
-    - numeric types (returned as float)
-    - strings like "HH:MM:SS.mmm", "MM:SS.mmm", "HH:MM:SS", "MM:SS",
-      and also "HH:MM:SS:ms" where the last field is milliseconds.
-    Returns None if parsing fails or value is None.
-    """
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        try:
-            return float(value)
-        except Exception:
-            return None
-    if not isinstance(value, str):
-        return None
-    s = value.strip()
-    if not s:
-        return None
-    s = s.replace(",", ".")
-    # Try plain float string first
-    try:
-        return float(s)
-    except Exception:
-        pass
-    # Split by colon
-    parts = s.split(":")
-    try:
-        if len(parts) == 4:
-            # HH:MM:SS:ms (ms is milliseconds)
-            hh, mm, ss, ms = [int(p) for p in parts]
-            return float(hh) * 3600.0 + float(mm) * 60.0 + float(ss) + float(ms) / 1000.0
-        if len(parts) == 3:
-            # HH:MM:SS(.mmm)?
-            hh = int(parts[0])
-            mm = int(parts[1])
-            ss = float(parts[2])
-            return float(hh) * 3600.0 + float(mm) * 60.0 + ss
-        if len(parts) == 2:
-            # MM:SS(.mmm)?
-            mm = int(parts[0])
-            ss = float(parts[1])
-            return float(mm) * 60.0 + ss
-    except Exception:
-        return None
-    return None
+"""Use shared helpers from core utils to avoid duplication."""
 
 
 def join_punctuated_segments(
@@ -1282,6 +1239,9 @@ def summarize_long_text_map_reduce(
     reduce_text = "\n".join([f"- {b}" for b in partial_bullets] + partial_abstracts)
     # Ensure the reduce step also respects token budget
     reduce_chunks = _split_text_by_token_budget(llm, reduce_text, max_input_tokens=input_limit)
+    # Initialize containers so later references (raw assembly) are always bound
+    reduce_raw_parts: List[str] = []
+    outs2: List[str] = []
     if len(reduce_chunks) == 1:
         reduced = summarize_text(llm, reduce_chunks[0], system_prompt, temperature=temperature, user_prompt=user_prompt)
     else:
@@ -1293,7 +1253,7 @@ def summarize_long_text_map_reduce(
             if show_progress and tqdm is not None:
                 iterable = tqdm(iterable, total=len(reduce_chunks), desc="Summarize reduce")
             # Collect raw outputs to expose a concatenated raw signal
-            reduce_raw_parts: List[str] = []
+            reduce_raw_parts = []
             for rc in iterable:
                 rpart = summarize_text(llm, rc, system_prompt, temperature=temperature, user_prompt=user_prompt)
                 merged_bullets.extend(rpart.get("bullets", [])[:5])
@@ -1313,7 +1273,7 @@ def summarize_long_text_map_reduce(
                     {"role": "user", "content": user_content},
                 ])
             params_max = 800
-            outs2: List[str] = []
+            outs2 = []
             start = 0
             while start < len(list_of_messages):
                 end = min(start + int(max(1, batch_prompts)), len(list_of_messages))
@@ -1474,7 +1434,27 @@ def main() -> None:
     s_temp = float(cfg_get(["summarization", "sampling", "temperature"], 0.2))
 
     def build_llm(model_id: str, quant: Optional[str], max_model_len: int, gmu: float, mns: int, mbt: int) -> Any:
+        # Ensure spawn method & environment JUST before first real vLLM import.
+        import multiprocessing as _mp
+        try:
+            if _mp.get_start_method(allow_none=True) != "spawn":
+                _mp.set_start_method("spawn", force=True)
+        except RuntimeError:
+            pass
+
+        os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+        os.environ.setdefault("MULTIPROCESSING_START_METHOD", "spawn")
+        os.environ.setdefault("VLLM_USE_MODELSCOPE", "False")
+
+        # Import vLLM late to avoid CUDA context initialization in parent prematurely.
+        from vllm import LLM as _RealLLM, SamplingParams as _RealSamplingParams  # type: ignore
+
+        # Bind real classes globally for subsequent calls.
+        global SamplingParams
+        SamplingParams = _RealSamplingParams  # type: ignore
+
         q = None if quant in (None, "auto", "infer", "compressed-tensors", "model") else str(quant)
+
         kwargs = dict(
             model=model_id,
             max_model_len=max_model_len,
@@ -1483,15 +1463,16 @@ def main() -> None:
             max_num_seqs=mns,
             max_num_batched_tokens=mbt,
             enforce_eager=True,
+            distributed_executor_backend="mp",
         )
         if q is not None:
             kwargs["quantization"] = q
         try:
-            return LLM(**kwargs)  # type: ignore[arg-type, call-arg, misc]
+            return _RealLLM(**kwargs)  # type: ignore[arg-type, call-arg, misc]
         except Exception as e:
             if "Quantization method specified in the model config" in str(e):
                 kwargs.pop("quantization", None)
-                return LLM(**kwargs)  # type: ignore[arg-type, call-arg, misc]
+                return _RealLLM(**kwargs)  # type: ignore[arg-type, call-arg, misc]
             raise
 
     asr_json_path = Path(args.asr_json)
@@ -1591,8 +1572,20 @@ def main() -> None:
         )
         logger.info(f"[post] Trust remote code: {trust_remote_code}")
 
+    # Resolve vLLM availability lazily now (after argument parsing & under __main__).
+    global VLLM_AVAILABLE
+    if VLLM_AVAILABLE is None:
+        try:
+            import vllm  # type: ignore  # noqa: F401
+            VLLM_AVAILABLE = True
+        except Exception:
+            VLLM_AVAILABLE = False
+
     # Early dry-run path: compute decisions without instantiating LLM
-    if bool(args.dry_run):
+    # Also activate this path automatically when vLLM is unavailable.
+    if bool(args.dry_run) or not VLLM_AVAILABLE:
+        if not VLLM_AVAILABLE:
+            logger.warning("[post] vLLM not available; running in offline dry-run mode (no LLM calls)")
         # Segmented batching only: estimate batches by approximate per-segment tokens
         approx_tokens = max(1, len((transcript_raw or "").strip()) // 3)
         ratio = max(0.5, min(1.0, float(punct_auto_ratio)))
@@ -1634,8 +1627,9 @@ def main() -> None:
         final.update(
             {
                 "segments": segments,
+                # Without an LLM, pass through raw transcript; real punctuation requires vLLM
                 "transcript_punct": (asr.get("transcript_raw") or "") if isinstance(asr, dict) else "",
-                "summary": {"bullets": [], "abstract": ""},
+                "summary": {"points": [], "abstract": ""},
                 "metadata": {
                     **(asr.get("metadata", {}) if isinstance(asr, dict) else {}),
                     "llm_model_punctuation": p_model_id,
@@ -1833,7 +1827,7 @@ def main() -> None:
             f"[post] Quality metrics: coverage={punct_coverage:.4f}, density={punct_density:.4f}, marks={punct_marks}"
         )
         logger.info(
-            f"[post] Summary: bullets={len(summary.get('bullets', []))}, has_abstract={bool(summary.get('abstract'))}"
+            f"[post] Summary: points={len(summary.get('points', []))}, has_abstract={bool(summary.get('abstract'))}"
         )
     
     # Compose final output with enhanced metadata
@@ -1932,14 +1926,14 @@ def main() -> None:
                         )
                     tf_text = "\n\n".join(wrapped_paragraphs).strip()
                 tf.write(tf_text + "\n")
-            # summary plain text (render bullets + abstract)
+            # summary plain text (render points + abstract)
             summary = final.get("summary") or {}
-            bullets = summary.get("bullets") or []
+            points = summary.get("points") or []
             abstract = summary.get("abstract") or ""
             with open(base_dir / sf_name, "w", encoding="utf-8") as sf:
-                for b in bullets:
-                    sf.write(f"- {b}\n")
-                if bullets and abstract:
+                for p in points:
+                    sf.write(f"- {p}\n")
+                if points and abstract:
                     sf.write("\n")
                 if abstract:
                     sf.write(abstract.strip() + "\n")

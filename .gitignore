@@ -24,5 +24,8 @@ sample_asr.json
 # Nested git repository
 .cursorignore
 
+# JSONL logs
+logs/*.jsonl
+
 # OS-specific
 .DS_Store

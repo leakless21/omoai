@@ -11,6 +11,9 @@ logging:
   enable_console: true
   enable_file: true
   log_file: "@logs/api_server.jsonl"
+  # Optional human-readable text log alongside JSONL
+  enable_text_file: true
+  text_log_file: "@logs/api_server.log"
   max_file_size: 10485760  # 10 MB
   backup_count: 5
   # Advanced Loguru options (optional)
@@ -34,9 +37,9 @@ asr:
 llm:
   model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
   quantization: auto
-  max_model_len: 50000
-  gpu_memory_utilization: 0.90
-  max_num_seqs: 2
+  max_model_len: 12000
+  gpu_memory_utilization: 0.70
+  max_num_seqs: 1
   max_num_batched_tokens: 512
   trust_remote_code: true
 
@@ -44,9 +47,9 @@ punctuation:
   llm:
     model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
     quantization: auto
-    max_model_len: 50000
-    gpu_memory_utilization: 0.90
-    max_num_seqs: 2
+    max_model_len: 12000
+    gpu_memory_utilization: 0.70
+    max_num_seqs: 1
     max_num_batched_tokens: 512
     trust_remote_code: true
   preserve_original_words: false
@@ -93,9 +96,9 @@ summarization:
   llm:
     model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
     quantization: auto
-    max_model_len: 50000
-    gpu_memory_utilization: 0.90
-    max_num_seqs: 2
+    max_model_len: 12000
+    gpu_memory_utilization: 0.70
+    max_num_seqs: 1
     max_num_batched_tokens: 512
     trust_remote_code: true
   map_reduce: false
@@ -217,7 +220,7 @@ api:
   temp_dir: "/tmp"
   cleanup_temp_files: true
   enable_progress_output: true
-  service_mode: "memory"
+  # service_mode removed; script-based pipeline is always used
   health_check_dependencies:
     - ffmpeg
     - config_file

@@ -27,7 +27,8 @@ def test_structured_logging_to_file(tmp_path: Path) -> None:
     last_line = log_file.read_text(encoding="utf-8").strip().splitlines()[-1]
     obj = json.loads(last_line)
     assert obj.get("message") == "test-message"
-    # Loguru JSON typically contains 'level'/'time'/'message' and extras
+    # Loguru JSON should contain 'level'/'timestamp'/'message' and extras
     assert obj.get("level")
+    assert obj.get("timestamp")
     assert obj.get("extra", {}).get("component") == "test"
 

@@ -174,20 +174,21 @@ data/output/my_episode-20250101-120000/
 ### Stage-by-stage processing
 
 ```bash
-# Using the main CLI (recommended approach)
+# Using the main CLI (recommended approach; runs script-based stages)
 uv run start data/input/your_audio.mp3
 
-# Or using the Python module interface for more control
-python -c "
-from omoai.pipeline import run_full_pipeline_memory
-result = run_full_pipeline_memory('data/input/your_audio.mp3')
-print(f'Transcript: {result.transcript_punctuated}')
-"
+# Or call individual stages via the packaged scripts
+python -m scripts.asr --config config.yaml --audio data/input/your_audio.mp3 --out /tmp/asr.json
+python -m scripts.post --config config.yaml --asr-json /tmp/asr.json --out /tmp/final.json
 ```
 
-### Legacy script usage (deprecated)
+### Pipeline architecture
 
-The legacy standalone scripts have been archived to `archive/legacy_scripts/` and are no longer maintained. Please use the new pipeline modules instead. See `docs/migration_guide.md` for details on how to migrate.
+The in-memory pipeline has been removed. All stages run via robust, script-based executables:
+
+- Preprocess: ffmpeg (via `run_preprocess_script`)
+- ASR: `python -m scripts.asr`
+- Postprocess (punctuation + summary): `python -m scripts.post`
 
 ## REST API
 
@@ -268,6 +269,7 @@ print(written)
   - Lower `llm.max_num_seqs` and `llm.max_num_batched_tokens`.
   - Reduce `asr.total_batch_duration_s` or `gpu_memory_utilization`.
   - Use quantized models (e.g., AWQ) or set `quantization: auto`.
+- **CUDA multiprocessing errors**: Fixed in v1.0+ - see [CUDA Multiprocessing Fix](docs/CUDA_MULTIPROCESSING_FIX.md) for details.
 - **Security**: `trust_remote_code: true` executes remote code from model repos; only enable for trusted sources.
 - **Custom config location**: `export OMOAI_CONFIG=/abs/path/config.yaml`.
 - **Debug GPU cache**: set `OMOAI_DEBUG_EMPTY_CACHE=true` to hint clearing CUDA cache in some paths.
@@ -307,7 +309,8 @@ uv run pytest
 ## Documentation
 
 For all documentation, see the [docs/README.md](docs/README.md).
-*
+
+-
 
 ## License
 
