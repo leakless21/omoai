@@ -14,6 +14,11 @@ except Exception:  # pragma: no cover - keep runnable without torch
 # Environment flag for debug GPU memory clearing
 DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() == "true"
 from difflib import SequenceMatcher
+from omoai.logging_system.logger import setup_logging, get_logger
+
+# Initialize unified logging for the script
+setup_logging()
+logger = get_logger(__name__)
 
 from contextlib import suppress
 
@@ -205,6 +210,7 @@ def punctuate_text_with_splitting(
     temperature: float = 0.0,
     batch_prompts: int = 1,
     show_progress: bool = False,
+    user_prompt: Optional[str] = None,
 ) -> str:
     """Punctuate text safely by splitting into token-budgeted chunks if needed.
 
@@ -241,6 +247,7 @@ def punctuate_text_with_splitting(
                     system_prompt,
                     max_tokens=per_piece_max[idx],
                     temperature=temperature,
+                    user_prompt=user_prompt,
                 )
             )
         return " ".join(p.strip() for p in out_pieces if p is not None).strip()
@@ -257,7 +264,7 @@ def punctuate_text_with_splitting(
         for i in idxs:
             list_of_messages.append([
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": pieces_only[i]},
+                ({"role": "user", "content": f"{user_prompt}\n\n{pieces_only[i]}" } if user_prompt else {"role": "user", "content": pieces_only[i] }),
             ])
         group_outs = generate_chat_batch(
             llm,
@@ -270,41 +277,127 @@ def punctuate_text_with_splitting(
         start = end
     return " ".join(s.strip() for s in out_texts if s is not None).strip()
 
-def punctuate_text(llm: Any, text: str, system_prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.0) -> str:
+def punctuate_text(llm: Any, text: str, system_prompt: str, max_tokens: Optional[int] = None, temperature: float = 0.0, user_prompt: Optional[str] = None) -> str:
     if not text:
         return ""
     system = system_prompt
+    # If a user_prompt is provided, prepend it to the user's content
+    if user_prompt:
+        user_content = f"{user_prompt}\n\n{text}"
+    else:
+        user_content = text
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": text},
+        {"role": "user", "content": user_content},
     ]
     # Heuristic: allow output tokens ~= input tokens + margin
     if max_tokens is None:
         try:
             tokenizer = get_tokenizer(llm)
-            max_tokens = min(4096, len(tokenizer.encode(text)) + 64)
+            max_tokens = min(4096, len(tokenizer.encode(user_content)) + 64)
         except Exception:
             max_tokens = 1024
     return generate_chat(llm, messages, temperature=temperature, max_tokens=int(max_tokens))
 
 
-def summarize_text(llm: Any, text: str, system_prompt: str, temperature: float = 0.2) -> Dict[str, Any]:
+def _parse_structured_summary(text: str) -> dict:
+    """
+    Parse a multi-line structured summary string into a dict with keys:
+    - title: str
+    - summary: str
+    - points: List[str]
+    Robustly handles different label names and bullet styles.
+    """
     if not text:
-        return {"bullets": [], "abstract": ""}
+        return {"title": "", "summary": "", "points": []}
+    lines = [l.rstrip() for l in text.splitlines()]
+    title = ""
+    abstract_lines: List[str] = []
+    points: List[str] = []
+    mode = "auto"  # auto, title, summary, points
+
+    # Normalize and detect sections by common headings
+    for i, raw in enumerate(lines):
+        line = raw.strip()
+        if not line:
+            # preserve paragraph breaks in abstract
+            if mode in ("auto", "summary"):
+                abstract_lines.append("")
+            continue
+        lower = line.lower()
+        # Common heading markers (English and Vietnamese)
+        if lower.startswith("title:") or lower.startswith("# ") or lower.startswith("title -") or lower.startswith("tiêu đề:"):
+            title = line.split(":", 1)[-1].strip() if ":" in line else line.lstrip("# ").strip()
+            mode = "summary"
+            continue
+        if lower.startswith("summary:") or lower.startswith("abstract:") or lower.startswith("summary -") or lower.startswith("tóm tắt:"):
+            mode = "summary"
+            # take text after colon if present
+            after = line.split(":", 1)
+            if len(after) > 1 and after[1].strip():
+                abstract_lines.append(after[1].strip())
+            continue
+        if lower.startswith("points:") or lower.startswith("bullets:") or lower.startswith("key points:") or lower.startswith("items:") or lower.startswith("điểm chính:"):
+            mode = "points"
+            # take trailing content on same line after colon
+            after = line.split(":", 1)
+            if len(after) > 1 and after[1].strip():
+                # may be a single bullet on same line
+                pts = after[1].strip()
+                # split by ';' if present
+                if ";" in pts:
+                    points.extend([p.strip() for p in pts.split(";") if p.strip()])
+                else:
+                    points.append(pts)
+            continue
+        # Bullet detection
+        if line.startswith("- ") or line.startswith("* ") or line.startswith("• ") or line[0:2].isdigit() and line[2:3] == ".":
+            bullet = line.lstrip("-*• ").strip()
+            points.append(bullet)
+            mode = "points"
+            continue
+        # If in points mode but line doesn't start with bullet, treat as continuation of last bullet
+        if mode == "points" and points:
+            points[-1] = f"{points[-1]} {line}"
+            continue
+        # Otherwise treat as summary/abstract content
+        abstract_lines.append(line)
+        mode = "summary"
+
+    # If no explicit title but first line looks like a short heading, use it
+    if not title and len(abstract_lines) > 0 and len(abstract_lines[0].split()) <= 10:
+        # pop as title if next line starts a new paragraph
+        candidate = abstract_lines.pop(0)
+        title = candidate
+
+    abstract = "\n".join([l for l in abstract_lines]).strip()
+    return {"title": title, "summary": abstract, "points": points}
+
+
+def summarize_text(llm: Any, text: str, system_prompt: str, temperature: float = 0.2, user_prompt: Optional[str] = None) -> dict:
+    """
+    Call the LLM to summarize and parse the multi-line structured string into a dict.
+    Returns a dict with keys: title, summary, points.
+    """
+    if not text:
+        return {"title": "", "summary": "", "points": []}
     system = system_prompt
+    # Prepend user_prompt to the user content if provided
+    if user_prompt:
+        user_content = f"{user_prompt}\n\n{text}"
+    else:
+        user_content = text
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": f"Hãy tóm tắt đoạn văn sau:\n\n{text}"},
+        {"role": "user", "content": user_content},
     ]
     content = generate_chat(llm, messages, temperature=temperature, max_tokens=800)
-    try:
-        parsed = json.loads(content)
-        bullets = parsed.get("bullets", [])
-        abstract = parsed.get("abstract", "")
-    except Exception:
-        bullets = [line.strip("- ") for line in content.splitlines() if line.strip()]
-        abstract = ""
-    return {"bullets": bullets, "abstract": abstract}
+    raw = (content or "").strip()
+    parsed = _parse_structured_summary(raw)
+    # Include the raw model content for downstream consumers
+    parsed_with_raw = dict(parsed)
+    parsed_with_raw["raw"] = raw
+    return parsed_with_raw
 
 
 def _dedup_overlap(prev: str, nxt: str, max_tokens: int = 8) -> str:
@@ -946,6 +1039,7 @@ def _segmentwise_punctuate_segments(
     max_model_len: int,
     segments: List[Dict[str, Any]],
     temperature: float = 0.0,
+    user_prompt: Optional[str] = None,
     batch_prompts: int = 1,
     show_progress: bool = False,
 ) -> List[Dict[str, Any]]:
@@ -961,9 +1055,13 @@ def _segmentwise_punctuate_segments(
         tokenizer = None
     for i in non_empty_indices:
         raw = (segments[i].get("text_raw") or "").strip()
+        if user_prompt:
+            user_content = f"{user_prompt}\n\n{raw}"
+        else:
+            user_content = raw
         messages.append([
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": raw},
+            {"role": "user", "content": user_content},
         ])
         if tokenizer is not None:
             with suppress(Exception):
@@ -1130,6 +1228,7 @@ def summarize_long_text_map_reduce(
     max_model_len: int = 2048,
     batch_prompts: int = 1,
     show_progress: bool = False,
+    user_prompt: Optional[str] = None,
 ) -> Dict[str, Any]:
     # Split into manageable chunks by tokenizer budget and summarize each, then reduce
     input_limit = _compute_input_token_limit(max_model_len, prompt_overhead_tokens=128, output_margin_tokens=256)
@@ -1143,18 +1242,23 @@ def summarize_long_text_map_reduce(
         if show_progress and tqdm is not None:
             iterable = tqdm(iterable, total=len(chunks), desc="Summarize map")
         for chunk in iterable:
-            part = summarize_text(llm, chunk, system_prompt, temperature=temperature)
+            part = summarize_text(llm, chunk, system_prompt, temperature=temperature, user_prompt=user_prompt)
             partial_bullets.extend(part.get("bullets", [])[:5])
             if part.get("abstract"):
                 partial_abstracts.append(part["abstract"]) 
     else:
-        list_of_messages: List[List[Dict[str, str]]] = [
-            [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Hãy tóm tắt đoạn văn sau:\n\n{c}"},
-            ]
-            for c in chunks
-        ]
+        list_of_messages: List[List[Dict[str, str]]] = []
+        for c in chunks:
+            if user_prompt:
+                user_content = f"{user_prompt}\n\n{c}"
+            else:
+                user_content = f"{c}"
+            list_of_messages.append(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ]
+            )
         params_max = 800
         outs: List[str] = []
         start = 0
@@ -1179,7 +1283,7 @@ def summarize_long_text_map_reduce(
     # Ensure the reduce step also respects token budget
     reduce_chunks = _split_text_by_token_budget(llm, reduce_text, max_input_tokens=input_limit)
     if len(reduce_chunks) == 1:
-        reduced = summarize_text(llm, reduce_chunks[0], system_prompt, temperature=temperature)
+        reduced = summarize_text(llm, reduce_chunks[0], system_prompt, temperature=temperature, user_prompt=user_prompt)
     else:
         # Summarize each reduce chunk then merge (batched if enabled)
         merged_bullets: List[str] = []
@@ -1188,19 +1292,26 @@ def summarize_long_text_map_reduce(
             iterable = reduce_chunks
             if show_progress and tqdm is not None:
                 iterable = tqdm(iterable, total=len(reduce_chunks), desc="Summarize reduce")
+            # Collect raw outputs to expose a concatenated raw signal
+            reduce_raw_parts: List[str] = []
             for rc in iterable:
-                rpart = summarize_text(llm, rc, system_prompt, temperature=temperature)
+                rpart = summarize_text(llm, rc, system_prompt, temperature=temperature, user_prompt=user_prompt)
                 merged_bullets.extend(rpart.get("bullets", [])[:5])
                 if rpart.get("abstract"):
                     merged_abstracts.append(rpart["abstract"]) 
+                if rpart.get("raw"):
+                    reduce_raw_parts.append(str(rpart.get("raw")))
         else:
-            list_of_messages = [
-                [
+            list_of_messages = []
+            for rc in reduce_chunks:
+                if user_prompt:
+                    user_content = f"{user_prompt}\n\n{rc}"
+                else:
+                    user_content = f"{rc}"
+                list_of_messages.append([
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Hãy tóm tắt đoạn văn sau:\n\n{rc}"},
-                ]
-                for rc in reduce_chunks
-            ]
+                    {"role": "user", "content": user_content},
+                ])
             params_max = 800
             outs2: List[str] = []
             start = 0
@@ -1223,9 +1334,27 @@ def summarize_long_text_map_reduce(
             "bullets": merged_bullets[:7],
             "abstract": " ".join(merged_abstracts)[:1000],
         }
+    # Expose a single raw string where possible
+    raw_out: Optional[str] = None
+    if isinstance(reduced, dict) and "raw" in reduced and reduced.get("raw"):
+        raw_out = str(reduced.get("raw"))
+    else:
+        # If we had batched reduce or chunk-level reduce, fallback to joining available raw parts or batch outputs
+        try:
+            raw_candidates: List[str] = []
+            # from single-chunk reduce loop
+            if 'reduce_raw_parts' in locals() and reduce_raw_parts:
+                raw_candidates.extend([str(x) for x in reduce_raw_parts if x])
+            # from multi-chunk reduce batching
+            if 'outs2' in locals() and outs2:
+                raw_candidates.extend([str(x).strip() for x in outs2 if str(x).strip()])
+            raw_out = "\n\n".join(raw_candidates) if raw_candidates else None
+        except Exception:
+            raw_out = None
     return {
         "bullets": reduced.get("bullets", partial_bullets[:7]),
         "abstract": reduced.get("abstract", " ".join(partial_abstracts)[:1000]),
+        "raw": raw_out or "",
     }
 
 
@@ -1305,6 +1434,8 @@ def main() -> None:
     p_mns = int(cfg_get(["punctuation", "llm", "max_num_seqs"], mns_default))
     p_mbt = int(cfg_get(["punctuation", "llm", "max_num_batched_tokens"], mbt_default))
     p_temp = float(cfg_get(["punctuation", "sampling", "temperature"], 0.0))
+    # Optional user-provided prompt to guide punctuation (prepended to segment/chunk text)
+    p_user_prompt = cfg_get(["punctuation", "user_prompt"], None)
     punct_auto_ratio = float(args.punct_auto_ratio or cfg_get(["punctuation", "auto_switch_ratio"], 0.98))
     punct_auto_margin = int(args.punct_auto_margin or cfg_get(["punctuation", "auto_margin_tokens"], 128))
     
@@ -1325,6 +1456,8 @@ def main() -> None:
     use_vi_sentence_seg = bool(cfg_get(["punctuation", "use_vi_sentence_segmenter"], False))
     
     # Safety controls
+    # Optional user prompt for summarization (prepended to user content)
+    s_user_prompt = cfg_get(["summarization", "user_prompt"], None)
     trust_remote_code = cfg_get(["llm", "trust_remote_code"], True)
     if args.trust_remote_code:
         trust_remote_code = True
@@ -1450,9 +1583,13 @@ def main() -> None:
     prompt_batch_prompts = int(args.batch_prompts) if args.batch_prompts is not None else int(p_mns)
     
     if verbose:
-        print(f"[post] Config: adopt_case={adopt_case}, enable_paragraphs={enable_paragraphs}")
-        print(f"[post] Token budget: ratio={punct_auto_ratio}, margin={punct_auto_margin}")
-        print(f"[post] Trust remote code: {trust_remote_code}")
+        logger.info(
+            f"[post] Config: adopt_case={adopt_case}, enable_paragraphs={enable_paragraphs}"
+        )
+        logger.info(
+            f"[post] Token budget: ratio={punct_auto_ratio}, margin={punct_auto_margin}"
+        )
+        logger.info(f"[post] Trust remote code: {trust_remote_code}")
 
     # Early dry-run path: compute decisions without instantiating LLM
     if bool(args.dry_run):
@@ -1524,10 +1661,12 @@ def main() -> None:
     token_limit = int(ratio * p_mml) - int(punct_auto_margin)
     token_limit = max(256, token_limit)
     if verbose:
-        print(f"[post] Punctuation: token_limit={token_limit}, segments={len(segments)}")
+        logger.info(
+            f"[post] Punctuation: token_limit={token_limit}, segments={len(segments)}"
+        )
     batches = _build_segment_batches_by_token_budget(llm_punc, segments, token_limit, safety_margin=64)
     if verbose:
-        print(f"[post] Created {len(batches)} batches for punctuation")
+        logger.info(f"[post] Created {len(batches)} batches for punctuation")
     # Initialize output copy
     punct_segments = [dict(s) for s in segments]
     chunk_puncts: List[str] = []
@@ -1654,11 +1793,11 @@ def main() -> None:
 
     if not use_map_reduce and tokenizer_s is not None and total_tokens_s and total_tokens_s <= token_limit:
         if verbose:
-            print(f"[post] Summarization: single-pass, tokens={total_tokens_s}")
-        summary = summarize_text(llm_sum, long_text, sum_system, temperature=s_temp)
+            logger.info(f"[post] Summarization: single-pass, tokens={total_tokens_s}")
+        summary = summarize_text(llm_sum, long_text, sum_system, temperature=s_temp, user_prompt=s_user_prompt)
     else:
         if verbose:
-            print(f"[post] Summarization: map-reduce, tokens={total_tokens_s}")
+            logger.info(f"[post] Summarization: map-reduce, tokens={total_tokens_s}")
         summary = summarize_long_text_map_reduce(
             llm_sum,
             long_text,
@@ -1690,8 +1829,12 @@ def main() -> None:
     punct_density = punct_marks / max(1, len(transcript_punct))
     
     if verbose:
-        print(f"[post] Quality metrics: coverage={punct_coverage:.4f}, density={punct_density:.4f}, marks={punct_marks}")
-        print(f"[post] Summary: bullets={len(summary.get('bullets', []))}, has_abstract={bool(summary.get('abstract'))}")
+        logger.info(
+            f"[post] Quality metrics: coverage={punct_coverage:.4f}, density={punct_density:.4f}, marks={punct_marks}"
+        )
+        logger.info(
+            f"[post] Summary: bullets={len(summary.get('bullets', []))}, has_abstract={bool(summary.get('abstract'))}"
+        )
     
     # Compose final output with enhanced metadata
     decisions = {
@@ -1707,11 +1850,20 @@ def main() -> None:
     }
     
     final = dict(asr)
+    # Capture raw summary text if available
+    summary_raw_text = None
+    try:
+        if isinstance(summary, dict) and summary.get("raw"):
+            summary_raw_text = str(summary.get("raw"))
+    except Exception:
+        summary_raw_text = None
+
     final.update(
         {
             "segments": punct_segments,
             "transcript_punct": transcript_punct,
             "summary": summary,
+            "summary_raw_text": summary_raw_text,
             "metadata": {
                 **asr.get("metadata", {}),
                 "llm_model_punctuation": p_model_id,

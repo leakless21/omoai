@@ -1,3 +1,12 @@
+# NOTE: The in-memory pipeline has been removed.
+# This module previously provided run_full_pipeline_memory and related helpers.
+# Importing it now raises an explicit error to avoid accidental usage.
+raise ImportError(
+    "In-memory pipeline (src.omoai.pipeline.pipeline) has been removed. "
+    "Use the script-based pipeline via src.omoai.api.services (async helpers) "
+    "which call the scripts in the scripts/ directory (scripts.preprocess, "
+    "scripts.asr, scripts.post)."
+)
 """
 Complete in-memory pipeline orchestrator for OMOAI.
 
@@ -228,10 +237,10 @@ def run_full_pipeline_memory(
         
         # Save final results if requested
         if save_intermediates and output_dir:
-            # Use the new output system
-            from ..output import write_outputs
-            
-            # Prepare segments in the expected format
+            # Persist a simple final JSON for debugging (replaced previous output writer usage)
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            import json
             segments = [
                 {
                     "start": seg.start,
@@ -242,30 +251,20 @@ def run_full_pipeline_memory(
                 }
                 for i, seg in enumerate(postprocess_result.segments)
             ]
-            
-            # Prepare summary
             summary = {
                 "bullets": postprocess_result.summary.bullets,
                 "abstract": postprocess_result.summary.abstract,
             }
-            
-            # Write all configured outputs
-            written_files = write_outputs(
-                output_dir=output_dir,
-                segments=segments,
-                transcript_raw=asr_result.transcript,
-                transcript_punct=postprocess_result.transcript_punctuated,
-                summary=summary,
-                metadata=postprocess_result.metadata,
-                config=config.output,
-            )
-            
-            # Log what was written
-            logger.info("Output files written", extra={
-                "pipeline_id": pipeline_id,
-                "files_written": list(written_files.keys()),
-                "output_dir": str(output_dir),
-            })
+            final_json = {
+                "segments": segments,
+                "transcript_raw": asr_result.transcript,
+                "transcript_punct": postprocess_result.transcript_punctuated,
+                "summary": summary,
+                "metadata": postprocess_result.metadata,
+            }
+            with open(output_dir / "final.json", "w", encoding="utf-8") as f:
+                json.dump(final_json, f, ensure_ascii=False, indent=2)
+            logger.info("Saved final.json to %s", output_dir)
         
         # Calculate total timing
         timing["total"] = time.time() - start_time
@@ -398,37 +397,3 @@ def run_pipeline_batch(
     if config is None:
         from ..config import get_config
         config = get_config()
-    
-    results = []
-    
-    for i, audio_input in enumerate(audio_inputs):
-        try:
-            # Determine output directory for this input
-            output_dir = None
-            if save_intermediates and output_base_dir:
-                if isinstance(audio_input, (str, Path)):
-                    input_name = Path(audio_input).stem
-                else:
-                    input_name = f"input_{i:03d}"
-                output_dir = Path(output_base_dir) / input_name
-            
-            # Process single input
-            result = run_full_pipeline_memory(
-                audio_input=audio_input,
-                config=config,
-                save_intermediates=save_intermediates,
-                output_dir=output_dir,
-                validate_input=validate_inputs,
-            )
-            
-            results.append(result)
-            
-        except Exception as e:
-            # Continue processing other inputs on error
-            print(f"Warning: Failed to process input {i}: {e}")
-            continue
-    
-    return results
-
-
-

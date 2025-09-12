@@ -1,30 +1,20 @@
 """
-In-memory pipeline module for OMOAI audio processing.
+Pipeline package exports for OMOAI.
 
-This module provides efficient in-memory data processing functions that eliminate
-disk I/O bottlenecks between pipeline stages.
+The in-memory postprocessing and full in-memory pipeline were removed to avoid
+confusion with the production script-based pipeline. This package now exposes
+preprocessing and ASR utilities only; postprocessing should be performed via
+the scripts in the scripts/ directory (invoked by wrappers in
+src.omoai.api.scripts).
 """
-
 from .preprocess import (
-    preprocess_audio_to_tensor, 
+    preprocess_audio_to_tensor,
     preprocess_audio_bytes,
     get_audio_info,
     validate_audio_input,
     preprocess_file_to_wav_bytes,
 )
 from .asr import run_asr_inference, ASRResult, ASRSegment, ChunkFormerASR
-from .postprocess import (
-    postprocess_transcript, 
-    PostprocessResult, 
-    SummaryResult,
-    punctuate_transcript,
-    summarize_text,
-)
-from .pipeline import (
-    run_full_pipeline_memory, 
-    PipelineResult,
-    run_pipeline_batch,
-)
 from .exceptions import (
     OMOPipelineError,
     OMOAudioError,
@@ -40,27 +30,15 @@ __all__ = [
     "preprocess_audio_to_tensor",
     "preprocess_audio_bytes",
     "get_audio_info",
-    "validate_audio_input", 
+    "validate_audio_input",
     "preprocess_file_to_wav_bytes",
-    
+
     # ASR
     "run_asr_inference",
     "ASRResult",
     "ASRSegment",
     "ChunkFormerASR",
-    
-    # Postprocessing
-    "postprocess_transcript",
-    "PostprocessResult",
-    "SummaryResult",
-    "punctuate_transcript",
-    "summarize_text",
-    
-    # Pipeline
-    "run_full_pipeline_memory",
-    "PipelineResult",
-    "run_pipeline_batch",
-    
+
     # Exceptions
     "OMOPipelineError",
     "OMOAudioError",

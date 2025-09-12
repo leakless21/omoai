@@ -12,6 +12,54 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class LoggingSettings(BaseModel):
+    """Top-level logging settings, configurable via config.yaml.
+
+    These fields mirror the logging_system LoggingConfig so values can merge in.
+    """
+
+    # Base behavior
+    level: str = Field(default="INFO", description="Root logging level")
+    format_type: str = Field(default="structured", description="structured | json | simple")
+    enable_console: bool = Field(default=True, description="Enable console output")
+    enable_file: bool = Field(default=False, description="Enable file output")
+
+    # File logging
+    log_file: Path | None = Field(default=Path("logs/app.log"), description="Log file path")
+    max_file_size: int = Field(default=10 * 1024 * 1024, description="Max file size in bytes")
+    backup_count: int = Field(default=5, description="Number of rotated backups")
+
+    # Advanced (for future Loguru migration compatibility)
+    rotation: str | None = Field(default=None, description="Rotation policy (e.g., '10 MB')")
+    retention: str | None = Field(default=None, description="Retention policy (e.g., '14 days')")
+    compression: str | None = Field(default=None, description="Compression (e.g., 'gz')")
+    enqueue: bool | None = Field(default=None, description="Async logging if supported")
+
+    # Performance / tracing / errors / metrics
+    enable_performance_logging: bool = Field(default=True)
+    performance_threshold_ms: float = Field(default=100.0)
+    enable_request_tracing: bool = Field(default=True)
+    trace_headers: bool = Field(default=False)
+    enable_error_tracking: bool = Field(default=True)
+    include_stacktrace: bool = Field(default=True)
+    enable_metrics: bool = Field(default=True)
+    metrics_interval: int = Field(default=60)
+
+    # Modes
+    debug_mode: bool = Field(default=False)
+    quiet_mode: bool = Field(default=False)
+
+    @field_validator("log_file")
+    @classmethod
+    def normalize_log_file(cls, v: Path | None) -> Path | None:
+        """Normalize @logs/ alias to ./logs/ for convenience."""
+        if v is None:
+            return v
+        s = str(v)
+        if s.startswith("@logs/"):
+            return Path("logs") / s[len("@logs/"):]
+        return v
+
 class PathsConfig(BaseModel):
     """Configuration for file and directory paths."""
     
@@ -193,6 +241,10 @@ class PunctuationConfig(BaseModel):
     system_prompt: str = Field(
         description="System prompt for punctuation model"
     )
+    user_prompt: Optional[str] = Field(
+        default=None,
+        description="A user-defined prompt to guide the punctuation model."
+    )
     sampling: SamplingConfig = Field(
         default_factory=SamplingConfig,
         description="Sampling configuration"
@@ -222,166 +274,14 @@ class SummarizationConfig(BaseModel):
     system_prompt: str = Field(
         description="System prompt for summarization model"
     )
+    user_prompt: Optional[str] = Field(
+        default=None,
+        description="A user-defined prompt to guide the summarization model."
+    )
     sampling: SamplingConfig = Field(
         default_factory=lambda: SamplingConfig(temperature=0.7),
         description="Sampling configuration"
     )
-
-
-class TranscriptOutputConfig(BaseModel):
-    """Configuration for transcript output options."""
-    
-    include_raw: bool = Field(
-        default=True,
-        description="Include raw transcript in outputs"
-    )
-    include_punct: bool = Field(
-        default=True,
-        description="Include punctuated transcript in outputs"
-    )
-    include_segments: bool = Field(
-        default=True,
-        description="Include timestamped segments in outputs"
-    )
-    timestamps: Literal["none", "s", "ms", "clock"] = Field(
-        default="clock",
-        description="Timestamp format (none, s=seconds, ms=milliseconds, clock=HH:MM:SS)"
-    )
-    wrap_width: int = Field(
-        default=0,
-        ge=0,
-        le=200,
-        description="Text wrapping width (0=no wrapping)"
-    )
-    file_raw: str = Field(
-        default="transcript.raw.txt",
-        description="Raw transcript filename"
-    )
-    file_punct: str = Field(
-        default="transcript.punct.txt", 
-        description="Punctuated transcript filename"
-    )
-    file_srt: str = Field(
-        default="transcript.srt",
-        description="SRT subtitle filename"
-    )
-    file_vtt: str = Field(
-        default="transcript.vtt",
-        description="WebVTT subtitle filename"
-    )
-    file_segments: str = Field(
-        default="segments.json",
-        description="Segments JSON filename"
-    )
-
-
-class SummaryOutputConfig(BaseModel):
-    """Configuration for summary output options."""
-    
-    mode: Literal["bullets", "abstract", "both", "none"] = Field(
-        default="both",
-        description="Summary generation mode"
-    )
-    bullets_max: int = Field(
-        default=7,
-        ge=1,
-        le=20,
-        description="Maximum number of bullet points"
-    )
-    abstract_max_chars: int = Field(
-        default=1000,
-        ge=100,
-        le=5000,
-        description="Maximum abstract length in characters"
-    )
-    language: str = Field(
-        default="vi",
-        description="Summary language (vi, en, etc.)"
-    )
-    file: str = Field(
-        default="summary.md",
-        description="Summary output filename"
-    )
-
-
-class OutputConfig(BaseModel):
-    """Configuration for output formatting."""
-    
-    # Legacy fields (maintained for backward compatibility)
-    write_separate_files: bool = Field(
-        default=True,
-        description="Write separate transcript and summary files"
-    )
-    transcript_file: str = Field(
-        default="transcript.txt",
-        description="Legacy transcript filename (use transcript.file_punct instead)"
-    )
-    summary_file: str = Field(
-        default="summary.txt",
-        description="Legacy summary filename (use summary.file instead)"
-    )
-    wrap_width: int = Field(
-        default=0,
-        ge=0,
-        le=200,
-        description="Legacy text wrapping width (use transcript.wrap_width instead)"
-    )
-    
-    # New structured configuration
-    formats: List[Literal["json", "text", "srt", "vtt", "md"]] = Field(
-        default=["json", "text"],
-        description="Output formats to generate"
-    )
-    transcript: TranscriptOutputConfig = Field(
-        default_factory=TranscriptOutputConfig,
-        description="Transcript output configuration"
-    )
-    summary: SummaryOutputConfig = Field(
-        default_factory=SummaryOutputConfig,
-        description="Summary output configuration"
-    )
-    final_json: str = Field(
-        default="final.json",
-        description="Final JSON output filename"
-    )
-
-    # API-related output controls
-    save_on_api: bool = Field(
-        default=False,
-        description="If true, the /pipeline API will persist configured outputs to disk"
-    )
-    save_formats_on_api: List[str] = Field(
-        default_factory=lambda: ["final_json", "segments"],
-        description="Which artifacts to persist when save_on_api is true (e.g. final_json, segments, transcript_punct, transcript_raw)"
-    )
-    api_output_dir: Optional[Path] = Field(
-        default=None,
-        description="Optional override directory to save API outputs (if not set, paths.out_dir is used)"
-    )
-    
-    @model_validator(mode="after")
-    def migrate_legacy_fields(self) -> "OutputConfig":
-        """Migrate legacy fields to new structure for backward compatibility."""
-        # Migrate wrap_width if it's non-default
-        if self.wrap_width != 0 and self.transcript.wrap_width == 0:
-            self.transcript.wrap_width = self.wrap_width
-        
-        # Migrate legacy filenames if they're non-default
-        if self.transcript_file != "transcript.txt":
-            self.transcript.file_punct = self.transcript_file
-        
-        if self.summary_file != "summary.txt":
-            self.summary.file = self.summary_file
-        
-        # Ensure api_output_dir Path is resolved if provided as string in YAML
-        if isinstance(self.api_output_dir, (str,)) and self.api_output_dir:
-            try:
-                self.api_output_dir = Path(self.api_output_dir)
-            except Exception:
-                # keep original value; validation of path happens later when used
-                pass
-
-        return self
 
 
 class APIConfig(BaseModel):
@@ -426,10 +326,7 @@ class APIConfig(BaseModel):
         description="Dependencies to check in health endpoint"
     )
     
-    service_mode: str = Field(
-        default="auto",
-        description="Service mode for API server ('auto', 'script', 'memory')"
-    )
+    
     @field_validator("temp_dir")
     @classmethod
     def validate_temp_dir(cls, v: Path) -> Path:
@@ -456,13 +353,14 @@ class OmoAIConfig(BaseSettings):
     )
     
     paths: PathsConfig
+    logging: LoggingSettings | None = Field(default=None, description="Logging configuration")
     asr: ASRConfig = Field(default_factory=ASRConfig)
     llm: LLMConfig = Field(
         description="Base LLM configuration (model_id required)"
     )
     punctuation: PunctuationConfig
     summarization: SummarizationConfig
-    output: OutputConfig = Field(default_factory=OutputConfig)
+    output: Optional[dict] = Field(default_factory=lambda: None)  # legacy output config removed; keep placeholder
     api: APIConfig = Field(default_factory=APIConfig)
     
     @model_validator(mode="after")
@@ -571,15 +469,32 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> OmoAIConfig:
     return OmoAIConfig.load_from_yaml(Path(config_path))
 
 
-def get_config() -> OmoAIConfig:
-    """Get the global configuration instance (singleton pattern)."""
-    if not hasattr(get_config, "_instance"):
-        get_config._instance = load_config()
-    return get_config._instance
+# Module-level singleton container for the validated configuration.
+# Using a module-level variable avoids attaching attributes to functions,
+# which resolves static-analyzer (Pylance) warnings and is simpler to reason about.
+_GLOBAL_CONFIG: Optional[OmoAIConfig] = None
 
+def get_config() -> OmoAIConfig:
+    """Get the global configuration instance (singleton pattern).
+
+    Loads the configuration once and returns the same validated instance on
+    subsequent calls. The configuration is stored in the module-level
+    _GLOBAL_CONFIG variable to keep static analysis tools happy.
+    """
+    global _GLOBAL_CONFIG
+    if _GLOBAL_CONFIG is None:
+        _GLOBAL_CONFIG = load_config()
+    return _GLOBAL_CONFIG
 
 def reload_config(config_path: Optional[Union[str, Path]] = None) -> OmoAIConfig:
-    """Reload configuration and update global instance."""
-    new_config = load_config(config_path)
-    get_config._instance = new_config
-    return new_config
+    """Reload the global configuration instance.
+
+    If config_path is provided, it will be used as the OMOAI_CONFIG location
+    for this reload call (temporarily set in environment).
+    """
+    global _GLOBAL_CONFIG
+    if config_path is not None:
+        os.environ["OMOAI_CONFIG"] = str(config_path)
+    # Clear the cached instance so the next get_config() call reloads from file
+    _GLOBAL_CONFIG = None
+    return get_config()

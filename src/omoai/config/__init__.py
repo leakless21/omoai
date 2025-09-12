@@ -4,15 +4,14 @@ Configuration module for OMOAI.
 This module provides validated configuration loading with Pydantic schemas,
 environment variable support, and security defaults.
 """
-
 from .schemas import (
     OmoAIConfig,
     PathsConfig,
+    LoggingSettings,
     ASRConfig,
     LLMConfig,
     PunctuationConfig,
     SummarizationConfig,
-    OutputConfig,
     APIConfig,
     SamplingConfig,
     load_config,
@@ -23,11 +22,11 @@ from .schemas import (
 __all__ = [
     "OmoAIConfig",
     "PathsConfig", 
+    "LoggingSettings",
     "ASRConfig",
     "LLMConfig",
     "PunctuationConfig", 
     "SummarizationConfig",
-    "OutputConfig",
     "APIConfig",
     "SamplingConfig",
     "load_config",

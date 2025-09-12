@@ -6,15 +6,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import torch
+from omoai.logging_system.logger import setup_logging, get_logger
+
+# Initialize unified logging once for scripts
+setup_logging()
 
 # Environment flag for debug GPU memory clearing
 DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() == "true"
 
 
 def ensure_chunkformer_on_path(chunkformer_dir: Path) -> None:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
     
     logger.info(f"chunkformer_dir: {chunkformer_dir}")
     logger.info(f"chunkformer_dir.exists(): {chunkformer_dir.exists()}")
@@ -24,15 +26,18 @@ def ensure_chunkformer_on_path(chunkformer_dir: Path) -> None:
         sys.path.insert(0, str(chunkformer_dir))
         logger.info(f"Added chunkformer_dir to sys.path: {chunkformer_dir}")
     
-    # Add the src directory to path so we can import omoai package
-    # The src directory is at the project root, not relative to chunkformer_dir
-    src_dir = chunkformer_dir.parent.parent / "src"
+    # Derive repository root from the chunkformer directory (repo_root/chunkformer)
+    repo_root = chunkformer_dir.parent
+    src_dir = repo_root / "src"
     logger.info(f"src_dir: {src_dir}")
     logger.info(f"src_dir.exists(): {src_dir.exists()}")
     
-    if src_dir.exists() and str(src_dir) not in sys.path:
+    # Tests expect the repo's src path to be added to sys.path for imports.
+    # Add it unconditionally if not already present so imports can be resolved
+    # in test environments where the path may not physically exist.
+    if str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
-        logger.info(f"Added src_dir to sys.path: {src_dir}")
+        logger.info(f"Added src_dir to sys.path: {src_dir} (exists={src_dir.exists()})")
     
     logger.info(f"sys.path: {sys.path}")
 
@@ -49,9 +54,7 @@ def run_asr(
     autocast_dtype: str | None,
     chunkformer_dir: Path,
 ) -> None:
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
     
     logger.info(f"Starting ASR processing for audio: {audio_path}")
     logger.info(f"Model checkpoint path: {model_checkpoint}")
@@ -316,9 +319,7 @@ def main() -> None:
     args = parser.parse_args()
     
     # Initialize logger for main function
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
+    logger = get_logger(__name__)
     
     # Load centralized configuration using the project's Pydantic schemas
     try:
@@ -372,5 +373,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 

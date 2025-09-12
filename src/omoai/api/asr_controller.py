@@ -3,7 +3,7 @@ from litestar.datastructures import State
 
 from omoai.api.models import ASRRequest, ASRResponse
 
-from omoai.api.services_enhanced import asr_service
+from omoai.api.services import asr_service
 
 
 class ASRController(Controller):

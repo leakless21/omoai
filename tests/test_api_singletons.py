@@ -23,13 +23,7 @@ from src.omoai.api.singletons import (
     preload_all_models,
     get_model_status
 )
-from src.omoai.api.services_enhanced import (
-    get_service_mode,
-    should_use_in_memory_service,
-    get_service_status,
-    warmup_services,
-    ServiceMode
-)
+# services_enhanced was removed during refactor; service-mode and in-memory tests removed.
 
 
 class TestAPISingletons(unittest.TestCase):
@@ -127,168 +121,11 @@ class TestAPISingletons(unittest.TestCase):
         self.assertTrue(hasattr(singleton, '_init_lock'))
         self.assertTrue(hasattr(singleton, '_initialized'))
 
-    def test_service_mode_detection(self):
-        """Test service mode detection logic."""
-        import os
-        
-        # Test default mode
-        if "OMOAI_SERVICE_MODE" in os.environ:
-            del os.environ["OMOAI_SERVICE_MODE"]
-        
-        mode = get_service_mode()
-        self.assertEqual(mode, ServiceMode.AUTO)
-        
-        # Test environment override
-        os.environ["OMOAI_SERVICE_MODE"] = ServiceMode.IN_MEMORY
-        mode = get_service_mode()
-        self.assertEqual(mode, ServiceMode.IN_MEMORY)
-        
-        os.environ["OMOAI_SERVICE_MODE"] = ServiceMode.SCRIPT_BASED
-        mode = get_service_mode()
-        self.assertEqual(mode, ServiceMode.SCRIPT_BASED)
-        
-        # Cleanup
-        del os.environ["OMOAI_SERVICE_MODE"]
 
-    def test_should_use_in_memory_service_sync(self):
-        """Test in-memory service availability detection."""
-        import os
-        import asyncio
-        from unittest.mock import patch
-        
-        async def run_test():
-            with patch('src.omoai.api.services_v2.health_check_models') as mock_health_check:
-                # Test forced script mode
-                os.environ["OMOAI_SERVICE_MODE"] = ServiceMode.SCRIPT_BASED
-                result = await should_use_in_memory_service()
-                self.assertFalse(result)
-                
-                # Test forced memory mode
-                os.environ["OMOAI_SERVICE_MODE"] = ServiceMode.IN_MEMORY
-                result = await should_use_in_memory_service()
-                self.assertTrue(result)
-                
-                # Test auto mode with healthy models
-                os.environ["OMOAI_SERVICE_MODE"] = ServiceMode.AUTO
-                mock_health_check.return_value = {"status": "healthy"}
-                result = await should_use_in_memory_service()
-                # Note: may return False if actual models aren't available in test
-                self.assertIsInstance(result, bool)
-                
-                # Test auto mode with unhealthy models
-                mock_health_check.return_value = {"status": "unhealthy"}
-                result = await should_use_in_memory_service()
-                self.assertFalse(result)
-                
-                return True
-        
-        # Run async test
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(run_test())
-            self.assertTrue(result)
-        finally:
-            loop.close()
-            # Cleanup
-            if "OMOAI_SERVICE_MODE" in os.environ:
-                del os.environ["OMOAI_SERVICE_MODE"]
 
-    def test_get_service_status_sync(self):
-        """Test service status reporting synchronously."""
-        import asyncio
-        
-        async def run_test():
-            status = await get_service_status()
-            
-            # Verify structure
-            self.assertIn("service_mode", status)
-            self.assertIn("in_memory_available", status)
-            self.assertIn("active_backend", status)
-            self.assertIn("performance_mode", status)
-            self.assertIn("models", status)
-            self.assertIn("config", status)
-            
-            # Verify values are valid
-            self.assertIn(status["service_mode"], [ServiceMode.AUTO, ServiceMode.SCRIPT_BASED, ServiceMode.IN_MEMORY])
-            self.assertIn(status["active_backend"], ["memory", "script"])
-            self.assertIn(status["performance_mode"], ["high", "standard"])
-            
-            return status
-        
-        # Run async test
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(run_test())
-            self.assertIsInstance(result, dict)
-        finally:
-            loop.close()
-
-    def test_warmup_services_sync(self):
-        """Test service warmup functionality."""
-        import asyncio
-        from unittest.mock import patch
-        
-        async def run_test():
-            with patch('src.omoai.api.singletons.preload_all_models') as mock_preload:
-                mock_preload.return_value = {
-                    "asr": True,
-                    "punctuation": True, 
-                    "summarization": True
-                }
-                
-                result = await warmup_services()
-                
-                # Verify structure
-                self.assertIn("success", result)
-                self.assertIn("warmup_time", result)
-                self.assertIn("models_loaded", result)
-                self.assertIn("service_status", result)
-                
-                # Verify success
-                self.assertTrue(result["success"])
-                self.assertIsInstance(result["warmup_time"], float)
-                self.assertGreater(result["warmup_time"], 0)
-                
-                return result
-        
-        # Run async test
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(run_test())
-            self.assertTrue(result["success"])
-        finally:
-            loop.close()
-
-    def test_warmup_services_failure_sync(self):
-        """Test service warmup with failures."""
-        import asyncio
-        from unittest.mock import patch
-        
-        async def run_test():
-            with patch('src.omoai.api.singletons.preload_all_models') as mock_preload:
-                mock_preload.side_effect = Exception("Model loading failed")
-                
-                result = await warmup_services()
-                
-                # Verify failure handling
-                self.assertFalse(result["success"])
-                self.assertIn("error", result)
-                self.assertIn("fallback_to_script", result)
-                self.assertTrue(result["fallback_to_script"])
-                
-                return result
-        
-        # Run async test
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(run_test())
-            self.assertFalse(result["success"])
-        finally:
-            loop.close()
+    # Tests removed: service-mode helpers were refactored and related functions are obsolete.
+    # These synchronous tests referenced get_service_status and warmup_services which were
+    # removed during the refactor. See docs/refactoring_findings.md for migration notes.
 
 
 class TestAsyncAPISingletons(unittest.TestCase):

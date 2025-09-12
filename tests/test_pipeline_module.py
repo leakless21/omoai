@@ -244,7 +244,8 @@ class TestPipelineModule(unittest.TestCase):
         result = postprocess_transcript(asr_result, self.test_config)
         
         self.assertIn("punctuation", result.transcript_punctuated.lower())
-        self.assertEqual(len(result.summary.bullets), 1)
+        # Summary now exposes points as the primary key (alias to bullets)
+        self.assertEqual(len(result.summary.points), 1)
         self.assertIn("Test abstract", result.summary.abstract)
 
     @patch('src.omoai.pipeline.pipeline.run_asr_inference')

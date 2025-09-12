@@ -5,6 +5,7 @@ This module provides efficient ASR processing that works with tensors and
 returns structured data without intermediate file I/O.
 """
 import io
+import os
 import subprocess
 import tempfile
 import time
@@ -19,7 +20,7 @@ from pydub import AudioSegment  # type: ignore
 
 from ..config import OmoAIConfig, ASRConfig
 from ..logging_system import get_logger, performance_context, log_error, get_performance_logger
-from .exceptions import OMOASRError, OMOConfigError, OMOModelError
+from .exceptions import OMOASRError, OMOConfigError, OMOModelError, OMOAudioError
 
 # Module logger
 logger = get_logger("omoai.pipeline.asr")
@@ -63,8 +64,8 @@ class ChunkFormerASR:
         self.device = self._resolve_device(device)
         
         # Model components (loaded lazily)
-        self.model = None
-        self.char_dict = None
+        self.model: Optional[Any] = None
+        self.char_dict: Optional[Dict[str, int]] = None
         self._is_initialized = False
         
     def _resolve_device(self, device: Optional[Union[str, torch.device]]) -> torch.device:
@@ -85,7 +86,9 @@ class ChunkFormerASR:
             from chunkformer import decode as cfdecode  # type: ignore
             
             # Initialize model
-            self.model, self.char_dict = cfdecode.init(str(self.model_checkpoint), self.device)
+            model, char_dict = cfdecode.init(str(self.model_checkpoint), self.device)
+            self.model = model
+            self.char_dict = char_dict
             self._is_initialized = True
             
         except ImportError as e:
@@ -170,6 +173,9 @@ class ChunkFormerASR:
         ).unsqueeze(0)  # Add batch dimension
         
         # Compute internal parameters
+        assert self.model is not None, "Model must be initialized before processing"
+        assert self.char_dict is not None, "Character dictionary must be initialized before processing"
+        
         subsampling_factor = self.model.encoder.embed.subsampling_factor
         conv_lorder = self.model.encoder.cnn_module_kernel // 2
         
@@ -307,7 +313,7 @@ class ChunkFormerASR:
 
 
 def run_asr_inference(
-    audio_input: Union[torch.Tensor, np.ndarray, bytes, Path, str, BinaryIO],
+    audio_input: torch.Tensor,
     config: Optional[Union[OmoAIConfig, ASRConfig, Dict[str, Any]]] = None,
     model_checkpoint: Optional[Union[Path, str]] = None,
     sample_rate: int = 16000,
@@ -315,10 +321,10 @@ def run_asr_inference(
     **kwargs,
 ) -> ASRResult:
     """
-    Run ASR inference on audio input with flexible configuration.
+    Run ASR inference on audio tensor with flexible configuration.
     
     Args:
-        audio_input: Audio data (tensor, array, bytes, path, or file-like object)
+        audio_input: Audio tensor (should be preprocessed to 16kHz mono)
         config: Configuration object or dict (loads default if None)
         model_checkpoint: Model checkpoint path (overrides config)
         sample_rate: Audio sample rate (should be 16kHz)
@@ -361,7 +367,6 @@ def run_asr_inference(
         
         # Convert dict to OmoAIConfig if needed
         if isinstance(config, dict):
-            from ..config import OmoAIConfig
             try:
                 config = OmoAIConfig(**config)
             except Exception as e:
@@ -412,7 +417,7 @@ def run_asr_inference(
         with performance_context("asr_processing", logger=logger):
             process_start = time.time()
             result = engine.process_tensor(
-                audio_input=audio_input,
+                audio_tensor=audio_input,
                 sample_rate=sample_rate,
                 **asr_params,
             )

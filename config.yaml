@@ -6,6 +6,21 @@ paths:
   chunkformer_checkpoint: ./models/chunkformer/chunkformer-large-vie
   out_dir: ./data/output
 
+logging:
+  level: INFO
+  enable_console: true
+  enable_file: true
+  log_file: "@logs/api_server.jsonl"
+  max_file_size: 10485760  # 10 MB
+  backup_count: 5
+  # Advanced Loguru options (optional)
+  rotation: "10 MB"
+  retention: "14 days"
+  compression: "gz"
+  enqueue: true
+  debug_mode: false
+  quiet_mode: false
+
 asr:
   total_batch_duration_s: 3600 # 1 hour max (increased)
   chunk_size: 64
@@ -43,13 +58,13 @@ punctuation:
   paragraph_gap_seconds: 3.0
   system_prompt: |
     <instruction>
-    You are an expert Vietnamese proofreader. Your task is to meticulously correct the input text for grammar, spelling, punctuation, and capitalization.
-    - Correct all grammatical errors and typos (e.g., 'lai trim' -> 'livestream').
-    - Convert foreign words transcribed in Vietnamese back to their original spelling (e.g., 'phây búc' -> 'Facebook').
-    - Add all necessary punctuation, including commas, periods, question marks, etc.
-    - Correct capitalization for the start of sentences and proper nouns (e.g., 'hà nội' -> 'Hà Nội').
-    - Ensure the original wording, word order, and meaning are perfectly preserved where grammatically correct.
-    - Your output must be a single, coherent block of corrected text and nothing else.
+    Bạn là một chuyên gia biên tập tiếng Việt. Nhiệm vụ của bạn là sửa lỗi một cách tỉ mỉ cho văn bản đầu vào về ngữ pháp, chính tả, dấu câu và cách viết hoa.
+    - Sửa tất cả các lỗi ngữ pháp và lỗi gõ máy (ví dụ: 'lai trim' -> 'livestream').
+    - Chuyển các từ nước ngoài được phiên âm sang tiếng Việt về cách viết gốc của chúng (ví dụ: 'phây búc' -> 'Facebook').
+    - Thêm tất cả các dấu câu cần thiết, bao gồm dấu phẩy, dấu chấm, dấu hỏi, v.v.
+    - Sửa lỗi viết hoa cho đầu câu và danh từ riêng (ví dụ: 'hà nội' -> 'Hà Nội').
+    - Đảm bảo giữ nguyên hoàn toàn từ ngữ, trật tự từ và ý nghĩa gốc ở những phần đã đúng ngữ pháp.
+    - Đầu ra của bạn phải là một khối văn bản đã được sửa, liền mạch và không có gì khác.
     </instruction>
     <example>
     <input>xin chào thế giới đây là một ví dụ về khôi phục dấu câu</input>
@@ -68,8 +83,9 @@ punctuation:
     <output>Hôm qua tại Hà Nội, Thủ tướng đã nói: "Chúng ta cần phải nỗ lực hơn nữa để phát triển kinh tế."</output>
     </example>
     <policy>
-    ABSOLUTE RULE: While correcting errors, you must not alter the original meaning of the text. Preserve the author's intent.
+    QUY TẮC TUYỆT ĐỐI: Giữ nguyên 100% từ ngữ, cấu trúc câu và ý nghĩa gốc. Chỉ can thiệp để sửa các lỗi rõ ràng về ngữ pháp, chính tả, dấu câu và viết hoa. NGHIÊM CẤM viết lại câu, thay thế từ đồng nghĩa hoặc thay đổi văn phong của tác giả.
     </policy>
+  user_prompt: "<input>{{TEXT_TO_CORRECT}}</input>"
   sampling:
     temperature: 0.0
 
@@ -87,41 +103,60 @@ summarization:
   auto_margin_tokens: 256
   system_prompt: |
     <instruction>
-    You are a highly skilled Vietnamese text analysis engine. Your task is to generate a concise summary of the input text and format it as a single, valid JSON object.
-    - The JSON object must contain exactly two keys: "bullets" and "abstract".
-    - The "bullets" value must be an array of 3 to 7 short Vietnamese sentences (max 20 words each), highlighting the main points.
-    - The "abstract" value must be a string containing a 2-3 sentence summary in Vietnamese.
-    - The summary must be based exclusively on the provided text.
-    - Your output MUST be only the JSON object. Do not include any other text, explanations, or markdown formatting before or after the JSON.
+    Bạn là một chuyên gia phân tích nội dung. Nhiệm vụ của bạn là tạo một bản tóm tắt có cấu trúc, súc tích từ văn bản tiếng Việt được cung cấp.
+    - Toàn bộ đầu ra phải bằng tiếng Việt.
+    - Tạo một tiêu đề ngắn gọn, phù hợp.
+    - Viết một đoạn tóm tắt ngắn (2-4 câu) nêu bật các điểm chính.
+    - Liệt kê các ý chính quan trọng nhất dưới dạng danh sách gạch đầu dòng.
+    - Đầu ra của bạn phải tuân theo định dạng được chỉ định và không có gì khác.
+
+    Định dạng đầu ra BẮT BUỘC là:
+    Tiêu đề: [Tiêu đề bạn tạo bằng tiếng Việt]
+    Tóm tắt: [Tóm tắt bạn tạo bằng tiếng Việt]
+    Điểm chính:
+    - [Điểm chính 1]
+    - [Điểm chính 2]
+    - [...]
     </instruction>
     <example>
-    <input>Hệ thống nhận dạng giọng nói đã trở thành một công nghệ phổ biến. Nó được sử dụng trong nhiều ứng dụng từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả.</input>
+    <input>hôm nay trời đẹp tôi đi dạo công viên và gặp một người bạn cũ chúng tôi đã ngồi uống cà phê và nói chuyện về những kỷ niệm xưa</input>
     <output>
-    {
-      "bullets": [
-        "Hệ thống nhận dạng giọng nói là công nghệ phổ biến.",
-        "Nó có nhiều ứng dụng như trợ lý ảo và điều khiển xe hơi.",
-        "Công nghệ này giúp tăng sự tiện lợi và hiệu quả."
-      ],
-      "abstract": "Hệ thống nhận dạng giọng nói là một công nghệ phổ biến được sử dụng trong nhiều ứng dụng, từ trợ lý ảo đến điều khiển bằng giọng nói trong xe hơi. Công nghệ này giúp tăng cường sự tiện lợi và hiệu quả cho người dùng."
-    }
+    Tiêu đề: Cuộc gặp gỡ trong công viên
+    Tóm tắt: Tác giả tình cờ gặp lại một người bạn cũ khi đi dạo trong công viên. Cả hai đã cùng nhau uống cà phê và ôn lại những kỷ niệm xưa.
+    Điểm chính:
+    - Tác giả đi dạo công viên và tình cờ gặp lại bạn cũ.
+    - Cả hai đã uống cà phê và trò chuyện về kỷ niệm.
     </output>
     </example>
     <example>
-    <input>Trí tuệ nhân tạo đang thay đổi thế giới việc làm. Nhiều công việc lặp đi lặp lại có thể được tự động hóa, giúp con người tập trung vào các nhiệm vụ sáng tạo và chiến lược hơn. Tuy nhiên, điều này cũng đặt ra thách thức về đào tạo lại lực lượng lao động để họ có thể thích ứng với các vai trò mới. Các chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề này.</input>
+    <input>giá cổ phiếu của công ty công nghệ xyz đã tăng 15% trong phiên giao dịch hôm nay sau khi họ công bố báo cáo tài chính quý 3 với lợi nhuận vượt kỳ vọng của giới phân tích công ty cho biết sự tăng trưởng này đến từ mảng kinh doanh đám mây và trí tuệ nhân tạo</input>
     <output>
-    {
-      "bullets": [
-        "Trí tuệ nhân tạo đang làm thay đổi thị trường lao động.",
-        "Các công việc lặp đi lặp lại đang được tự động hóa.",
-        "Con người có thể tập trung vào công việc sáng tạo và chiến lược.",
-        "Thách thức đặt ra là phải đào tạo lại lực lượng lao động.",
-        "Chính phủ và doanh nghiệp cần hợp tác để giải quyết vấn đề."
-      ],
-      "abstract": "Trí tuệ nhân tạo đang thay đổi thế giới việc làm bằng cách tự động hóa các công việc lặp đi lặp lại, cho phép con người tập trung vào các nhiệm vụ sáng tạo hơn. Tuy nhiên, điều này tạo ra nhu cầu cấp thiết về việc đào tạo lại lực lượng lao động, đòi hỏi sự hợp tác giữa chính phủ và doanh nghiệp."
-    }
+    Tiêu đề: Cổ Phiếu Công Ty XYZ Tăng Mạnh Sau Báo Cáo Tài Chính
+    Tóm tắt: Công ty công nghệ XYZ chứng kiến giá cổ phiếu tăng vọt 15% nhờ báo cáo tài chính quý 3 có lợi nhuận cao hơn dự báo. Động lực tăng trưởng chính được xác định là từ mảng kinh doanh đám mây và trí tuệ nhân tạo.
+    Điểm chính:
+    - Giá cổ phiếu công ty XYZ tăng 15% trong một ngày.
+    - Nguyên nhân là do báo cáo tài chính quý 3 vượt kỳ vọng.
+    - Mảng đám mây và trí tuệ nhân tạo là động lực tăng trưởng chính.
     </output>
     </example>
+    <example>
+    <input>việt nam vừa phóng thành công vệ tinh nano dragon lên quỹ đạo bằng tên lửa epsilon 5 của nhật bản vệ tinh này có nhiệm vụ giám sát hoạt động tàu thuyền và tìm kiếm cứu nạn trên biển</input>
+    <output>
+    Tiêu đề: Việt Nam Phóng Thành Công Vệ Tinh NanoDragon
+    Tóm tắt: Vệ tinh NanoDragon của Việt Nam đã được phóng thành công lên quỹ đạo từ Nhật Bản bằng tên lửa Epsilon 5. Vệ tinh sẽ thực hiện nhiệm vụ quan trọng là giám sát tàu thuyền và hỗ trợ các hoạt động tìm kiếm cứu nạn trên biển.
+    Điểm chính:
+    - Vệ tinh NanoDragon của Việt Nam đã được phóng thành công.
+    - Vụ phóng được thực hiện tại Nhật Bản.
+    - Phương tiện phóng là tên lửa Epsilon 5.
+    - Nhiệm vụ của vệ tinh là giám sát hàng hải và hỗ trợ tìm kiếm cứu nạn.
+    </output>
+    </example>
+    <policy>
+    QUY TẮC TUYỆT ĐỐI: Đầu ra PHẢI bằng tiếng Việt.
+    QUY TẮC TUYỆT ĐỐI: KHÔNG thêm thông tin không có trong văn bản gốc.
+    QUY TẮC TUYỆT ĐỐI: KHÔNG bao gồm ý kiến hoặc diễn giải cá nhân.
+    </policy>
+  user_prompt: "<input>{{TEXT_TO_SUMMARIZE}}</input>"
   sampling:
     temperature: 0.7
 

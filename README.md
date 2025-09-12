@@ -218,6 +218,14 @@ curl -X POST 'http://localhost:8000/pipeline' \
 curl -X POST 'http://localhost:8000/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \
   -F 'audio_file=@data/input/audio.mp3'
 
+# Include raw LLM summary in JSON
+curl -X POST 'http://localhost:8000/pipeline?return_summary_raw=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+
+# Return only raw LLM summary as text
+curl -X POST 'http://localhost:8000/pipeline?formats=text&return_summary_raw=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+
 # Health
 curl 'http://localhost:8000/health'
 ```
@@ -226,6 +234,7 @@ Notes:
 
 - When no query params are provided to `/pipeline`, the server returns `text/plain` containing the punctuated transcript and summary for convenience.
 - With query params, the server returns structured JSON (`PipelineResponse`).
+- When `return_summary_raw=true` is provided, responses include `summary_raw_text` (JSON) or return the raw summary in text mode.
 
 ## Outputs and formatters
 
@@ -297,21 +306,8 @@ uv run pytest
 
 ## Documentation
 
-📖 **[Documentation Hub](docs/README.md)** - Streamlined documentation portal
-
-### Essential Docs
-- **[Migration Guide](docs/migration_guide.md)** - Migrating from legacy scripts
-- **[Final Summary](docs/final_summary.md)** - Complete refactor summary and achievements
-- **[Project Status](COMPLETED.md)** - Project completion status
-
-### Development
-- **[Architecture Overview](docs/architecture/overview.md)** - System architecture and design
-- **[Development Guide](docs/development/development_guide.md)** - Contributing and development setup
-- **[Testing Report](docs/development/testing_report.md)** - Test coverage and quality metrics
-
----
-
-*For complete documentation index, see [docs/README.md](docs/README.md)*
+For all documentation, see the [docs/README.md](docs/README.md).
+*
 
 ## License
 

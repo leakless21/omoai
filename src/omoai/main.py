@@ -3,13 +3,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import os
+# Ensure TORCH_CUDA_ARCH_LIST is set before importing CUDA-related modules
+os.environ['TORCH_CUDA_ARCH_LIST'] = '8.6'
 import sys
 from datetime import datetime, timezone
 import yaml
 
 from omoai.pipeline.preprocess import preprocess_file_to_wav_bytes
 from omoai.pipeline.asr import run_asr_inference
-from omoai.pipeline.postprocess import postprocess_transcript
+from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
 
 def _repo_root() -> Path:
     here = Path(__file__).resolve()
@@ -49,8 +51,31 @@ def run_pipeline(audio_path: Path, out_dir: Path, model_dir: Path | None, config
 
     try:
         # Run ASR inference using the new API
+        # Load preprocessed WAV into a torch tensor (float32). Try soundfile first, fall back to wave.
+        try:
+            import soundfile as sf
+            import numpy as np
+            import torch
+            data, sr = sf.read(str(preprocessed), dtype='float32')
+            if data.ndim > 1:
+                data = data.mean(axis=1)
+            audio_tensor = torch.from_numpy(data).float()
+        except Exception:
+            try:
+                import wave
+                import numpy as np
+                import torch
+                with wave.open(str(preprocessed), 'rb') as wf:
+                    frames = wf.readframes(wf.getnframes())
+                    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+                    if wf.getnchannels() > 1:
+                        audio = audio.reshape(-1, wf.getnchannels()).mean(axis=1)
+                    audio_tensor = torch.from_numpy(audio).float()
+            except Exception as e:
+                raise RuntimeError(f"Failed to load preprocessed WAV into tensor: {e}")
+        # run_asr_inference expects a tensor; sample rate is 16000 for preprocessed audio
         asr_result = run_asr_inference(
-            audio_input=preprocessed,
+            audio_input=audio_tensor,
             config={
                 "asr": {
                     "chunk_size": asr_config.get("chunk_size", 64),
@@ -63,7 +88,8 @@ def run_pipeline(audio_path: Path, out_dir: Path, model_dir: Path | None, config
                 "paths": {
                     "chunkformer_checkpoint": str(model_checkpoint),
                 }
-            }
+            },
+            sample_rate=16000,
         )
         
         # Save ASR result to JSON file
@@ -93,65 +119,19 @@ def run_pipeline(audio_path: Path, out_dir: Path, model_dir: Path | None, config
         print(f"[orchestrator] ASR failed: {e}")
         return 2
 
-    # 3) Post-process (punctuation + summary)
+    # 3) Post-process (punctuation + summary) via script-based pipeline
     final_json = out_dir / "final.json"
     try:
-        # Load ASR result
+        # Call the script-based postprocess (scripts/post.py) via wrapper
+        run_postprocess_script(asr_json_path=asr_json, output_path=final_json, config_path=None)
+
+        # Read final JSON produced by the script and present as output
         import json
-        with open(asr_json, "r", encoding="utf-8") as f:
-            asr_data = json.load(f)
-        
-        # Convert to ASRResult format
-        from omoai.pipeline.asr import ASRResult, ASRSegment
-        segments = [
-            ASRSegment(
-                start=seg.get("start", 0.0),
-                end=seg.get("end", 0.0),
-                text=seg.get("text_raw", ""),
-            )
-            for seg in asr_data.get("segments", [])
-        ]
-        
-        asr_result = ASRResult(
-            segments=segments,
-            transcript=asr_data.get("transcript_raw", ""),
-            audio_duration_seconds=asr_data.get("audio", {}).get("duration_s", 0.0),
-            sample_rate=asr_data.get("audio", {}).get("sr", 16000),
-            metadata=asr_data.get("metadata", {}),
-        )
-        
-        # Run postprocessing using the new API
-        post_result = postprocess_transcript(
-            asr_result=asr_result,
-            config=config,
-        )
-        
-        # Save final result to JSON file
-        final_output = {
-            "segments": [
-                {
-                    "start": seg.start,
-                    "end": seg.end,
-                    "text_raw": asr_result.segments[i].text if i < len(asr_result.segments) else "",
-                    "text_punct": seg.text,
-                }
-                for i, seg in enumerate(post_result.segments)
-            ],
-            "transcript_raw": asr_result.transcript,
-            "transcript_punct": post_result.transcript_punctuated,
-            "summary": {
-                "bullets": post_result.summary.bullets,
-                "abstract": post_result.summary.abstract,
-            },
-            "metadata": {
-                **asr_result.metadata,
-                **post_result.metadata,
-            },
-        }
-        
-        final_json.parent.mkdir(parents=True, exist_ok=True)
-        with open(final_json, "w", encoding="utf-8") as f:
-            json.dump(final_output, f, ensure_ascii=False, indent=2)
+        with open(final_json, "r", encoding="utf-8") as f:
+            final_data = json.load(f)
+
+        # Optionally, reformat or log as needed. The script output is expected to contain:
+        # { "segments": [...], "summary": {...}, "metadata": {...} }
     except Exception as e:
         print(f"[orchestrator] Post-process failed: {e}")
         return 3

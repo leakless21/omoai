@@ -41,6 +41,8 @@ class OutputFormatParams(BaseModel):
     # Quality metrics and diff options
     include_quality_metrics: Optional[bool] = None
     include_diffs: Optional[bool] = None
+    # Simple raw summary option
+    return_summary_raw: Optional[bool] = None
 
 
 # Response Models
@@ -63,6 +65,12 @@ class HumanReadableDiff(BaseModel):
 
 
 class PipelineResponse(BaseModel):
+    # Summary is now a structured dict with the shape:
+    # {
+    #   "title": str,
+    #   "summary": str,    # abstract / main paragraph
+    #   "points": List[str]    # bullet points
+    # }
     summary: dict
     segments: list
     # Punctuated transcript text for convenience (used for default text/plain responses)
@@ -70,6 +78,8 @@ class PipelineResponse(BaseModel):
     transcript_punct: str | None = None
     quality_metrics: Optional[QualityMetrics] = None
     diffs: Optional[HumanReadableDiff] = None
+    # Optional raw LLM summary text (unparsed), included only on request
+    summary_raw_text: Optional[str] = None
 
 
 class PreprocessResponse(BaseModel):
@@ -81,7 +91,10 @@ class ASRResponse(BaseModel):
 
 
 class PostprocessResponse(BaseModel):
+    # Postprocess now returns a structured summary dict (see PipelineResponse.summary)
     summary: dict
     segments: list  # Include segments with punctuated text
     quality_metrics: Optional[QualityMetrics] = None
     diffs: Optional[HumanReadableDiff] = None
+    # Optional raw LLM summary text (unparsed)
+    summary_raw_text: Optional[str] = None

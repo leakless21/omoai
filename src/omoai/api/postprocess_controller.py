@@ -9,7 +9,7 @@ from litestar.datastructures import State
 from omoai.api.models import PostprocessRequest, PostprocessResponse, OutputFormatParams
 
 
-from omoai.api.services_enhanced import postprocess_service
+from omoai.api.services import postprocess_service
 
 
 class PostprocessController(Controller):
@@ -44,7 +44,8 @@ class PostprocessController(Controller):
                 "ts": output_params.ts,
                 "summary": output_params.summary,
                 "summary_bullets_max": output_params.summary_bullets_max,
-                "summary_lang": output_params.summary_lang
+                "summary_lang": output_params.summary_lang,
+                "return_summary_raw": output_params.return_summary_raw,
             }
         
         result = await postprocess_service(data, output_params_dict)

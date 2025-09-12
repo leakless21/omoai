@@ -353,7 +353,8 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         data = response.json()
         self.assertIn("summary", data)
         self.assertIn("segments", data)
-        self.assertIn("bullets", data["summary"])
+        # API now uses 'points' instead of 'bullets'
+        self.assertIn("points", data["summary"])
         self.assertIn("abstract", data["summary"])
         
         # Verify all mocks were called

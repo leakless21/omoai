@@ -26,6 +26,11 @@ class LoggingConfig(BaseModel):
     log_file: Optional[Path] = Field(default=None, description="Log file path")
     max_file_size: int = Field(default=10*1024*1024, description="Maximum log file size in bytes")
     backup_count: int = Field(default=5, description="Number of backup log files")
+    # Loguru-native advanced options
+    rotation: Optional[str] = Field(default=None, description="Rotation policy, e.g. '10 MB' or '00:00'")
+    retention: Optional[object] = Field(default=None, description="Retention policy, e.g. '14 days' or number of files")
+    compression: Optional[str] = Field(default=None, description="Compression for rotated files, e.g. 'gz'")
+    enqueue: bool = Field(default=True, description="Enable async logging queue for sinks")
     
     # Performance logging
     enable_performance_logging: bool = Field(default=True, description="Enable performance metrics")
@@ -49,13 +54,28 @@ class LoggingConfig(BaseModel):
     
     @classmethod
     def from_environment(cls) -> "LoggingConfig":
-        """Create logging config from environment variables."""
+        """Create logging config from environment variables.
+
+        Supports a simple alias for log paths: values starting with "@logs/"
+        are rewritten to the local "logs/" directory.
+        """
+        log_file_env = os.environ.get("OMOAI_LOG_FILE")
+        if log_file_env and log_file_env.startswith("@logs/"):
+            # Normalize alias to local logs directory
+            log_file_env = os.path.join("logs", log_file_env[len("@logs/"):])
+
         return cls(
             level=os.environ.get("OMOAI_LOG_LEVEL", "INFO").upper(),
             format_type=os.environ.get("OMOAI_LOG_FORMAT", "structured"),
             enable_console=os.environ.get("OMOAI_LOG_CONSOLE", "true").lower() == "true",
             enable_file=os.environ.get("OMOAI_LOG_FILE_ENABLED", "false").lower() == "true",
-            log_file=Path(os.environ["OMOAI_LOG_FILE"]) if "OMOAI_LOG_FILE" in os.environ else None,
+            log_file=Path(log_file_env) if log_file_env else None,
+            rotation=os.environ.get("OMOAI_LOG_ROTATION") or None,
+            retention=(
+                int(os.environ["OMOAI_LOG_RETENTION"]) if os.environ.get("OMOAI_LOG_RETENTION", "").isdigit() else os.environ.get("OMOAI_LOG_RETENTION")
+            ),
+            compression=os.environ.get("OMOAI_LOG_COMPRESSION") or None,
+            enqueue=os.environ.get("OMOAI_LOG_ENQUEUE", "true").lower() == "true",
             enable_performance_logging=os.environ.get("OMOAI_LOG_PERFORMANCE", "true").lower() == "true",
             performance_threshold_ms=float(os.environ.get("OMOAI_LOG_PERF_THRESHOLD", "100.0")),
             enable_request_tracing=os.environ.get("OMOAI_LOG_TRACING", "true").lower() == "true",
@@ -76,6 +96,14 @@ class LoggingConfig(BaseModel):
             return logging.ERROR
         
         return getattr(logging, self.level.upper(), logging.INFO)
+    
+    def get_level_name(self) -> str:
+        """Get textual level name suitable for sinks like Loguru."""
+        if self.debug_mode:
+            return "DEBUG"
+        if self.quiet_mode:
+            return "ERROR"
+        return (self.level or "INFO").upper()
     
     def should_log_performance(self, duration_ms: float) -> bool:
         """Check if performance should be logged based on threshold."""
@@ -103,57 +131,105 @@ def get_logging_config() -> LoggingConfig:
     return config
 
 
+class InterceptHandler(logging.Handler):
+    """Route stdlib logging records to Loguru while preserving extras."""
+
+    _exclude = {
+        'name','msg','args','levelname','levelno','pathname','filename','module','exc_info',
+        'exc_text','stack_info','lineno','funcName','created','msecs','relativeCreated','thread','threadName',
+        'processName','process'
+    }
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            from loguru import logger as _logger
+        except Exception:
+            return
+
+        try:
+            level = _logger.level(record.levelname).name
+        except Exception:
+            level = record.levelno
+
+        # Find caller depth for correct source
+        frame, depth = logging.currentframe(), 2
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back
+            depth += 1
+
+        # Bind record extras (including module name)
+        extras = {k: v for k, v in record.__dict__.items() if k not in self._exclude}
+        if 'name' not in extras:
+            extras['name'] = record.name
+        _logger.bind(**extras).opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+def _add_sink_with_fallback(logger_obj, *args, enqueue: bool, **kwargs):
+    """Add a Loguru sink with enqueue, falling back to non-enqueue if denied."""
+    try:
+        return logger_obj.add(*args, enqueue=enqueue, **kwargs)
+    except (PermissionError, OSError):
+        # Sandbox environments may deny multiprocessing primitives used by enqueue
+        return logger_obj.add(*args, enqueue=False, **kwargs)
+
+
 def configure_python_logging(config: LoggingConfig) -> None:
-    """Configure Python's built-in logging system."""
-    # Set root logger level
-    root_logger = logging.getLogger()
-    root_logger.setLevel(config.get_log_level())
-    
-    # Clear existing handlers
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-    
-    # Add console handler if enabled
+    """Configure logging via Loguru and intercept stdlib logging."""
+    from loguru import logger as _logger
+
+    # Intercept stdlib logging
+    root = logging.getLogger()
+    for h in root.handlers[:]:
+        root.removeHandler(h)
+    root.setLevel(logging.NOTSET)
+    root.addHandler(InterceptHandler())
+
+    # Reset Loguru sinks
+    try:
+        _logger.remove()
+    except Exception:
+        pass
+
+    level_name = config.get_level_name()
+
+    # Console sink
     if config.enable_console and not config.quiet_mode:
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(config.get_log_level())
-        
-        if config.format_type == "json":
-            from .formatters import JSONFormatter
-            console_handler.setFormatter(JSONFormatter())
-        elif config.format_type == "structured":
-            from .formatters import StructuredFormatter
-            console_handler.setFormatter(StructuredFormatter())
-        else:
-            formatter = logging.Formatter(
-                fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S"
-            )
-            console_handler.setFormatter(formatter)
-        
-        root_logger.addHandler(console_handler)
-    
-    # Add file handler if enabled
-    if config.enable_file and config.log_file:
-        from logging.handlers import RotatingFileHandler
-        
-        # Ensure log directory exists
-        config.log_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        file_handler = RotatingFileHandler(
-            config.log_file,
-            maxBytes=config.max_file_size,
-            backupCount=config.backup_count
+        fmt = (
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan> | "
+            "<level>{message}</level>"
         )
-        file_handler.setLevel(config.get_log_level())
-        
-        # File output is always JSON for machine processing
-        from .formatters import JSONFormatter
-        file_handler.setFormatter(JSONFormatter())
-        
-        root_logger.addHandler(file_handler)
-    
-    # Configure third-party loggers
+        _add_sink_with_fallback(
+            _logger,
+            sys.stdout,
+            level=level_name,
+            format=fmt,
+            colorize=True,
+            enqueue=config.enqueue,
+            backtrace=False,
+            diagnose=False,
+        )
+
+    # File sink (JSON)
+    if config.enable_file and config.log_file:
+        config.log_file.parent.mkdir(parents=True, exist_ok=True)
+        rotation = config.rotation or config.max_file_size
+        retention = config.retention if config.retention is not None else config.backup_count
+        _add_sink_with_fallback(
+            _logger,
+            str(config.log_file),
+            level=level_name,
+            serialize=True,
+            rotation=rotation,
+            retention=retention,
+            compression=config.compression,
+            enqueue=config.enqueue,
+            backtrace=False,
+            diagnose=False,
+        )
+
+    # Configure third-party loggers (levels) via stdlib
     _configure_third_party_loggers(config)
 
 

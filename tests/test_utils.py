@@ -1,8 +1,39 @@
 from pathlib import Path
-
 import types
+import numpy as np
 
 from omoai.pipeline.postprocess import _parse_time_to_seconds, _dedup_overlap, join_punctuated_segments
+
+
+class MockTorchTensor:
+    """Minimal mock object that mimics the parts of torch.Tensor used in tests.
+
+    Supports:
+    - construction from a shape-like list/tuple [channels, length] => zeros array
+    - construction from an iterable of values => 1D array
+    - .numpy() -> numpy.ndarray
+    - .shape property
+    - .to(device) -> self (no-op)
+    - .unsqueeze(dim) -> returns self (no-op)
+    """
+    def __init__(self, shape_or_values):
+        if isinstance(shape_or_values, (list, tuple)) and len(shape_or_values) == 2 and all(isinstance(x, int) for x in shape_or_values):
+            self._arr = np.zeros(tuple(shape_or_values), dtype=np.float32)
+        else:
+            self._arr = np.array(shape_or_values, dtype=np.float32)
+
+    def numpy(self):
+        return self._arr
+
+    @property
+    def shape(self):
+        return self._arr.shape
+
+    def to(self, device):
+        return self
+
+    def unsqueeze(self, dim):
+        return self
 
 
 def test_parse_time_to_seconds():

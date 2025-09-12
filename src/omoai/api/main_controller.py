@@ -7,9 +7,8 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from omoai.api.models import PipelineRequest, PipelineResponse, OutputFormatParams
-from omoai.api.services_enhanced import run_full_pipeline as run_full_pipeline_enhanced
+from omoai.api.services import run_full_pipeline
 from omoai.config import get_config
-from omoai.output.writer import write_outputs
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -41,6 +40,7 @@ class MainController(Controller):
         summary: Optional[Literal["bullets", "abstract", "both", "none"]] = None,
         summary_bullets_max: Optional[int] = None,
         summary_lang: Optional[str] = None,
+        return_summary_raw: Optional[bool] = None,
         # Quality metrics and diff options
         include_quality_metrics: Optional[bool] = None,
         include_diffs: Optional[bool] = None,
@@ -82,7 +82,8 @@ class MainController(Controller):
             summary_bullets_max=summary_bullets_max,
             summary_lang=summary_lang,
             include_quality_metrics=include_quality_metrics,
-            include_diffs=include_diffs
+            include_diffs=include_diffs,
+            return_summary_raw=return_summary_raw,
         )
         
         # Debug logging to validate query parameter parsing
@@ -93,47 +94,48 @@ class MainController(Controller):
             logger.info(f"output_params.summary_bullets_max: {output_params.summary_bullets_max}")
             logger.info(f"output_params.include: {output_params.include}")
         
+        
         # Run pipeline using the enhanced, high-performance service
-        params = output_params.dict(exclude_none=True) if output_params else None
-        result = await run_full_pipeline_enhanced(data, params)
-
-        # Persist outputs to disk for API requests when configured in config.output.save_on_api
+        # Pass the OutputFormatParams object directly so services receive a typed object
+        params = output_params if output_params else None
+        
+        logger.info("Starting pipeline execution with enhanced service")
+        logger.info(f"Audio file size: {len(await data.audio_file.read())} bytes")
+        # Reset file position after reading
+        data.audio_file.file.seek(0)
+        
         try:
-            cfg = get_config()
-            if getattr(cfg.output, "save_on_api", False):
-                api_out = getattr(cfg.output, "api_output_dir", None)
-                base_output_dir = Path(api_out) if api_out else cfg.paths.out_dir
+            result = await run_full_pipeline(data, params)
+            logger.info("Pipeline execution completed successfully")
+        except Exception as e:
+            logger.error(f"Pipeline execution failed with error: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise
 
-                # Create a unique timestamped subdirectory per API request
-                timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
-                unique_output_dir = Path(base_output_dir) / timestamp
-                try:
-                    unique_output_dir.mkdir(parents=True, exist_ok=False)
-                except FileExistsError:
-                    # Extremely unlikely due to microsecond precision, but handle just in case
-                    counter = 1
-                    while unique_output_dir.exists():
-                        unique_output_dir = Path(base_output_dir) / f"{timestamp}_{counter}"
-                        counter += 1
-                    unique_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        
+        logger.info("Pipeline execution completed, preparing response")
+        logger.info(f"Result type: {type(result)}")
+        logger.info(f"Result attributes: {dir(result)}")
+        
+        # The summarization returns a structured dictionary with keys: title, summary, points
+        summary_data = getattr(result, "summary", {}) or {}
+        logger.info(f"Summary data type: {type(summary_data)}")
+        logger.info(f"Summary data content: {summary_data}")
+        logger.info(f"Summary data keys: {list(summary_data.keys()) if isinstance(summary_data, dict) else 'N/A'}")
+        if not isinstance(summary_data, dict):
+            logger.error("Pipeline returned unexpected summary type; expected dict.")
+            raise ValueError("Pipeline returned unexpected summary type; expected dict with keys 'title','summary','points'.")
+        # Extract commonly-used pieces
+        title = summary_data.get("title", "")
+        abstract_text = summary_data.get("summary", "")
+        points = summary_data.get("points", [])
+        logger.info(f"Extracted summary title: {title[:100] if title else 'None'}")
+        logger.info(f"Extracted summary abstract: {abstract_text[:100] if abstract_text else 'None'}")
 
-                try:
-                    written = write_outputs(
-                        unique_output_dir,
-                        result.segments,
-                        getattr(result, "transcript_raw", ""),
-                        getattr(result, "transcript_punct", ""),
-                        result.summary or {},
-                        getattr(result, "metadata", {}),
-                        cfg.output,
-                    )
-                    logger.info(f"Saved API outputs to {unique_output_dir}: {written}")
-                except Exception as e:
-                    logger.exception(f"Failed to write API outputs to {unique_output_dir}: {e}")
-        except Exception:
-            # Best-effort only — do not fail the API because persistence failed
-            logger.debug("Skipping API output persistence due to configuration/read error", exc_info=True)
-
+        logger.info("Starting response preparation")
         # Default: respond with JSON but exclude raw transcript unless explicitly requested
         no_query_params = (
             formats is None
@@ -144,78 +146,76 @@ class MainController(Controller):
             and summary_lang is None
         )
 
-        if no_query_params:
-            # Return structured JSON response by default
-            # Include punctuated transcript and full summary (bullets + abstract, no segments)
-            summary_default = {}
-            if result.summary and isinstance(result.summary, dict):
-                # Include both bullets and abstract by default
-                if "bullets" in result.summary:
-                    summary_default["bullets"] = result.summary["bullets"]
-                if "abstract" in result.summary:
-                    summary_default["abstract"] = result.summary["abstract"]
+        logger.info("Determining response format based on query parameters")
+        logger.info(f"no_query_params: {no_query_params}")
+        logger.info(f"formats: {formats}")
+        logger.info(f"include: {include}")
+        
+        try:
+            if no_query_params:
+                logger.info("Returning default JSON response")
+                # Return JSON response with structured summary dict and punctuated transcript
+                response_obj = PipelineResponse(
+                    summary=summary_data,
+                    segments=[],  # Exclude segments by default
+                    transcript_punct=result.transcript_punct
+                )
+                logger.info(f"PipelineResponse created successfully: {type(response_obj)}")
+                return response_obj
+
+            # For backward compatibility, handle text/plain response when specifically requested
+            if formats == ["text"] or (formats and "text" in formats and len(formats) == 1):
+                logger.info("Returning text/plain response")
+                # If raw summary requested and available, return only the raw LLM output
+                if return_summary_raw and getattr(result, "summary_raw_text", None):
+                    raw_text = result.summary_raw_text or ""
+                    logger.info(f"Raw text response length: {len(raw_text)} characters")
+                    return Response(raw_text, media_type="text/plain; charset=utf-8")
+                # Otherwise compose plain text with transcript and structured summary (title, abstract, points)
+                parts: List[str] = []
+                if result.transcript_punct:
+                    parts.append(result.transcript_punct)
+                if title:
+                    parts.append(f"\n\n# {title}\n")
+                if abstract_text:
+                    parts.append(str(abstract_text))
+                if points:
+                    parts.append("\n\n# Points\n")
+                    parts.extend([f"- {p}" for p in points])
+                text_response = "\n".join(parts)
+                logger.info(f"Text response length: {len(text_response)} characters")
+                return Response(text_response, media_type="text/plain; charset=utf-8")
+
+            # Otherwise, return structured JSON response based on include parameters
+            logger.info("Returning structured JSON response")
+            # Check what components are explicitly requested
+            include_raw = include and "transcript_raw" in include
+            include_segments = include and "segments" in include
+            include_punct = include and "transcript_punct" in include
             
-            return PipelineResponse(
-                summary=summary_default,
-                segments=[],  # Exclude segments by default
-                transcript_punct=result.transcript_punct
-            )
-
-        # For backward compatibility, handle text/plain response when specifically requested
-        if formats == ["text"] or (formats and "text" in formats and len(formats) == 1):
-            # Compose plain text with transcript and summary (bullets + abstract)
-            parts: List[str] = []
-            if result.transcript_punct:
-                parts.append(result.transcript_punct)
-            # Append summary if available
-            if result.summary:
-                bullets = result.summary.get("bullets") if isinstance(result.summary, dict) else None
-                abstract = result.summary.get("abstract") if isinstance(result.summary, dict) else None
-                lines: List[str] = []
-                if bullets:
-                    lines.append("\n\n# Summary Points\n")
-                    for b in bullets:
-                        lines.append(f"- {b}")
-                if abstract:
-                    # Add header separating abstract if bullets also present
-                    if bullets:
-                        lines.append("\n# Abstract\n")
-                    else:
-                        lines.append("\n\n# Abstract\n")
-                    lines.append(str(abstract))
-                if lines:
-                    parts.append("\n".join(lines))
-            return Response("\n".join(parts), media_type="text/plain; charset=utf-8")
-
-        # Otherwise, return structured JSON response based on include parameters
-        # Check what components are explicitly requested
-        include_raw = include and "transcript_raw" in include
-        include_segments = include and "segments" in include
-        include_punct = include and "transcript_punct" in include
-        
-        # Determine what to include in summary based on summary parameter
-        summary_to_include = {}
-        if result.summary and isinstance(result.summary, dict):
-            if summary is None or summary == "both":  # Default to both bullets and abstract
-                summary_to_include = result.summary
-            elif summary == "bullets":
-                if "bullets" in result.summary:
-                    summary_to_include = {"bullets": result.summary["bullets"]}
-            elif summary == "abstract":
-                if "abstract" in result.summary:
-                    summary_to_include = {"abstract": result.summary["abstract"]}
-            elif summary == "none":
-                summary_to_include = {}
-        
-        # Build response based on explicit include parameters
-        response_data = {
-            "summary": summary_to_include,
-            "segments": result.segments if include_segments else [],
-            "transcript_punct": result.transcript_punct if (include_punct or include is None) else None
-        }
-        
-        # Add raw transcript only if explicitly requested
-        if include_raw:
-            response_data["transcript_raw"] = getattr(result, "transcript_raw", "")
-        
-        return PipelineResponse(**{k: v for k, v in response_data.items() if v is not None})
+            logger.info(f"include_raw: {include_raw}")
+            logger.info(f"include_segments: {include_segments}")
+            logger.info(f"include_punct: {include_punct}")
+            
+            # Build response based on explicit include parameters
+            response_data = {
+                "summary": summary_data,
+                "segments": result.segments if include_segments else [],
+                "transcript_punct": result.transcript_punct if (include_punct or include is None) else None
+            }
+            
+            # Add raw transcript only if explicitly requested
+            if include_raw:
+                response_data["transcript_raw"] = getattr(result, "transcript_raw", "")
+            
+            logger.info("Creating PipelineResponse with response_data")
+            response_obj = PipelineResponse(**response_data)
+            logger.info(f"PipelineResponse created successfully: {type(response_obj)}")
+            return response_obj
+            
+        except Exception as e:
+            logger.error(f"Error creating response: {str(e)}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise

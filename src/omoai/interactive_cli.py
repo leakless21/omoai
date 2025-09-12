@@ -18,6 +18,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+# Structured logging
+from omoai.logging_system.logger import setup_logging, get_logger
+
+# Module-level verbosity toggle for subprocess streaming
+CLI_VERBOSE = False
+
 import questionary
 from questionary import Style
 
@@ -64,7 +70,9 @@ def _load_config(config_path: Path) -> Dict[str, Any]:
             with open(config_path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
     except Exception as e:
-        print(f"[WARNING] Failed to load config from {config_path}: {e}")
+        # Log warning; keep CLI output minimal
+        logger = get_logger(__name__)
+        logger.warning("Failed to load config", extra={"config_path": str(config_path), "error": str(e)})
     return {}
 
 
@@ -137,20 +145,50 @@ def _validate_wav_file(path: str) -> bool | str:
     return True
 
 
-def _execute_command(cmd: list[str], description: str) -> bool:
+def _execute_command(cmd: list[str], description: str, stream_output: Optional[bool] = None) -> bool:
     """Execute a command and return True if successful."""
+    logger = get_logger(__name__)
+    stream = CLI_VERBOSE if stream_output is None else stream_output
     try:
+        # Log the command execution
+        logger.info("Executing command", extra={"description": description, "cmd": " ".join(cmd)})
         print(f"[INFO] {description}...")
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        if stream:
+            # Stream output directly to console for verbose mode
+            result = subprocess.run(cmd, check=True)
+        else:
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        try:
+            logger.info(
+                "Command completed",
+                extra={
+                    "description": description,
+                    "cmd": " ".join(cmd),
+                    "return_code": getattr(result, "returncode", 0),
+                },
+            )
+        except Exception:
+            pass
         return True
     except subprocess.CalledProcessError as e:
+        logger.error(
+            "Command failed",
+            extra={
+                "description": description,
+                "cmd": " ".join(cmd),
+                "return_code": e.returncode,
+                "stderr": (getattr(e, "stderr", "") or "").strip(),
+                "stdout": (getattr(e, "stdout", "") or "").strip(),
+            },
+        )
         print(f"[ERROR] {description} failed:")
         print(f"Command: {' '.join(cmd)}")
         print(f"Return code: {e.returncode}")
-        if e.stderr:
+        if getattr(e, "stderr", None):
             print(f"Error output: {e.stderr}")
         return False
     except Exception as e:
+        logger.error("Command execution raised exception", extra={"description": description, "error": str(e)})
         print(f"[ERROR] {description} failed with exception: {e}")
         return False
 
@@ -251,6 +289,7 @@ def _run_full_pipeline() -> None:
             print(f"\n[ERROR] Pipeline failed with return code: {rc}")
     
     except Exception as e:
+        get_logger(__name__).error("Pipeline execution failed", extra={"error": str(e)})
         print(f"\n[ERROR] Pipeline execution failed: {e}")
 
 
@@ -634,8 +673,10 @@ def _show_quality_analysis() -> None:
                     print(f"[ERROR] Failed to save analysis: {e}")
         
     except json.JSONDecodeError as e:
+        get_logger(__name__).error("Invalid JSON file", extra={"path": str(final_json_path), "error": str(e)})
         print(f"[ERROR] Invalid JSON file: {e}")
     except Exception as e:
+        get_logger(__name__).error("Failed to analyze file", extra={"path": str(final_json_path), "error": str(e)})
         print(f"[ERROR] Failed to analyze file: {e}")
     
     # Wait for user to continue
@@ -647,6 +688,8 @@ def _show_quality_analysis() -> None:
 
 def run_interactive_cli() -> None:
     """Main entry point for the interactive CLI."""
+    # Ensure structured logging is set up for this CLI session
+    setup_logging()
     print("\n🎧 Welcome to OMOAI Interactive CLI")
     print("Audio Transcription and Summarization Pipeline")
     print("=" * 50)
@@ -678,12 +721,34 @@ def run_interactive_cli() -> None:
                 _show_configuration()
                 
         except KeyboardInterrupt:
+            get_logger(__name__).info("Operation cancelled by user")
             print("\n\nOperation cancelled by user.")
             break
         except Exception as e:
+            get_logger(__name__).error("Unexpected error in CLI loop", extra={"error": str(e)})
             print(f"\n[ERROR] An unexpected error occurred: {e}")
             continue
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="OMOAI Interactive CLI")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging and stream subprocess output")
+    parser.add_argument("--quiet", action="store_true", help="Quiet mode: log only errors")
+    args = parser.parse_args()
+
+    # Configure env flags consumed by logging config
+    if args.verbose and args.quiet:
+        print("[WARNING] Both --verbose and --quiet specified; --quiet will take precedence.")
+    if args.quiet:
+        os.environ["OMOAI_QUIET"] = "true"
+        os.environ["OMOAI_DEBUG"] = "false"
+    elif args.verbose:
+        os.environ["OMOAI_DEBUG"] = "true"
+        os.environ["OMOAI_QUIET"] = "false"
+
+    # Set module-level verbosity for streaming subprocess output
+    CLI_VERBOSE = bool(args.verbose and not args.quiet)
+
     run_interactive_cli()

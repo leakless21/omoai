@@ -11,21 +11,21 @@ dependencies = [
     "ijson>=3.4.0",
     "jiwer>=4.0.0",
     "litestar[standard]>=2.17.0",
+    "loguru>=0.7.3",
     "numba>=0.61.2",
     "numpy>=2.2.6",
     "pandas>=2.3.1",
     "pillow>=11.3.0",
     "pydub>=0.25.1",
+    "pydantic-settings>=2.0.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.1.0",
     "pyyaml>=6.0.2",
     "questionary>=2.1.0",
     "sentencepiece>=0.2.0",
-    "speechbrain",
     "textgrid>=1.6.1",
     "tqdm>=4.67.1",
-    "underthesea>=6.8.4",
-    "vllm>=0.10.0",
+    
 ]
 
 
@@ -36,6 +36,3 @@ api = "omoai.api.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.uv.sources]
-speechbrain = { git = "https://github.com/speechbrain/speechbrain.git", rev = "develop" }

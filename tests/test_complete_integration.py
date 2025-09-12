@@ -37,9 +37,8 @@ class TestCompleteIntegration(unittest.TestCase):
         """Test that all 4 completed steps work together."""
         # Import all our systems
         from src.omoai.config import OmoAIConfig
-        from src.omoai.pipeline import run_full_pipeline_memory
+        # run_full_pipeline_memory removed; use current pipeline modules and script-based services
         from src.omoai.api.singletons import ModelSingletons
-        from src.omoai.api.services_enhanced import get_service_status
         
         # Test that imports work
         self.assertTrue(True, "All imports successful")
@@ -96,25 +95,6 @@ class TestCompleteIntegration(unittest.TestCase):
         
         print("✅ PyTorch optimizations properly integrated")
 
-    def test_service_fallback_integration(self):
-        """Test that service fallback system works."""
-        import asyncio
-        import os
-        from src.omoai.api.services_enhanced import ServiceMode, get_service_mode
-        
-        # Test service mode detection
-        os.environ["OMOAI_SERVICE_MODE"] = ServiceMode.AUTO
-        mode = get_service_mode()
-        self.assertEqual(mode, ServiceMode.AUTO)
-        
-        os.environ["OMOAI_SERVICE_MODE"] = ServiceMode.SCRIPT_BASED
-        mode = get_service_mode()
-        self.assertEqual(mode, ServiceMode.SCRIPT_BASED)
-        
-        # Cleanup
-        del os.environ["OMOAI_SERVICE_MODE"]
-        
-        print("✅ Service fallback system working")
 
     def test_error_handling_integration(self):
         """Test that error handling works across all systems."""

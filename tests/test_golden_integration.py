@@ -31,9 +31,11 @@ class TestGoldenIntegration(unittest.TestCase):
         """Set up integration test environment."""
         self.temp_dir = Path(tempfile.mkdtemp())
         
-        # Create required directories for config validation
-        (self.temp_dir / "chunkformer").mkdir(parents=True)
-        (self.temp_dir / "checkpoint").mkdir(parents=True)
+        # Ensure required directories exist for config validation
+        chunk_dir = self.temp_dir / "chunkformer"
+        chkpt_dir = self.temp_dir / "checkpoint"
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        chkpt_dir.mkdir(parents=True, exist_ok=True)
         
         self.fixture_manager = AudioFixtureManager(self.temp_dir / "fixtures")
         self.reference_manager = ReferenceDataManager(self.temp_dir / "reference")
@@ -41,8 +43,8 @@ class TestGoldenIntegration(unittest.TestCase):
         # Create test configuration
         self.config = OmoAIConfig(
             paths={
-                "chunkformer_dir": self.temp_dir / "chunkformer",
-                "chunkformer_checkpoint": self.temp_dir / "checkpoint"
+                "chunkformer_dir": chunk_dir,
+                "chunkformer_checkpoint": chkpt_dir
             },
             llm={
                 "model_id": "test/model",
@@ -269,7 +271,7 @@ class TestGoldenIntegration(unittest.TestCase):
         self.assertEqual(loaded_waveform.shape, custom_waveform.shape)
         
         # Create reference data for custom fixture
-        from fixtures.reference_data import ReferenceTranscript
+        from tests.fixtures.reference_data import ReferenceTranscript
         custom_reference = ReferenceTranscript(
             audio_fixture="custom_test_audio",
             expected_transcript="custom test",
@@ -311,7 +313,7 @@ class TestFrameworkIntegration(unittest.TestCase):
     def test_compatibility_with_existing_tests(self):
         """Test that new framework is compatible with existing tests."""
         # Import existing test utilities
-        from test_utils import MockTorchTensor
+        from tests.test_utils import MockTorchTensor
         
         # Test that existing mock utilities work with new fixtures
         fixture_manager = AudioFixtureManager(self.temp_dir / "fixtures")
@@ -332,7 +334,7 @@ class TestFrameworkIntegration(unittest.TestCase):
     
     def test_structured_logging_integration(self):
         """Test integration with structured logging system."""
-        from src.omoai.logging import get_logger, get_performance_logger
+        from src.omoai.logging_system import get_logger, get_performance_logger
         
         # Get loggers
         logger = get_logger("test.golden_integration")

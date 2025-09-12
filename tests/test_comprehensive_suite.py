@@ -50,10 +50,21 @@ class TestGoldenFixtures(unittest.TestCase):
     
     def _create_test_config(self) -> OmoAIConfig:
         """Create test configuration."""
+        # Ensure required paths exist so OmoAIConfig validation passes
+        (self.temp_dir / "chunkformer").mkdir(parents=True, exist_ok=True)
+        (self.temp_dir / "checkpoint").mkdir(parents=True, exist_ok=True)
+        # Prefer using local real ChunkFormer model if available, otherwise fall back to temp dirs
+        model_path = Path("models/chunkformer/chunkformer-large-vie")
+        if model_path.exists():
+            checkpoint_path = model_path
+            chunk_dir = model_path.parent
+        else:
+            checkpoint_path = self.temp_dir / "checkpoint"
+            chunk_dir = self.temp_dir / "chunkformer"
         return OmoAIConfig(
             paths={
-                "chunkformer_dir": self.temp_dir / "chunkformer",
-                "chunkformer_checkpoint": self.temp_dir / "checkpoint"
+                "chunkformer_dir": chunk_dir,
+                "chunkformer_checkpoint": checkpoint_path
             },
             llm={
                 "model_id": "test/model",
@@ -212,10 +223,21 @@ class TestPerformanceRegression(unittest.TestCase):
     
     def _create_test_config(self) -> OmoAIConfig:
         """Create test configuration."""
+        # Ensure required paths exist so OmoAIConfig validation passes
+        (self.temp_dir / "chunkformer").mkdir(parents=True, exist_ok=True)
+        (self.temp_dir / "checkpoint").mkdir(parents=True, exist_ok=True)
+        # Prefer using local real ChunkFormer model if available, otherwise fall back to temp dirs
+        model_path = Path("models/chunkformer/chunkformer-large-vie")
+        if model_path.exists():
+            checkpoint_path = model_path
+            chunk_dir = model_path.parent
+        else:
+            checkpoint_path = self.temp_dir / "checkpoint"
+            chunk_dir = self.temp_dir / "chunkformer"
         return OmoAIConfig(
             paths={
-                "chunkformer_dir": self.temp_dir / "chunkformer",
-                "chunkformer_checkpoint": self.temp_dir / "checkpoint"
+                "chunkformer_dir": chunk_dir,
+                "chunkformer_checkpoint": checkpoint_path
             },
             llm={
                 "model_id": "test/model",
@@ -326,10 +348,21 @@ class TestLoadTesting(unittest.TestCase):
     
     def _create_test_config(self) -> OmoAIConfig:
         """Create test configuration."""
+        # Ensure required paths exist so OmoAIConfig validation passes
+        (self.temp_dir / "chunkformer").mkdir(parents=True, exist_ok=True)
+        (self.temp_dir / "checkpoint").mkdir(parents=True, exist_ok=True)
+        # Prefer using local real ChunkFormer model if available, otherwise fall back to temp dirs
+        model_path = Path("models/chunkformer/chunkformer-large-vie")
+        if model_path.exists():
+            checkpoint_path = model_path
+            chunk_dir = model_path.parent
+        else:
+            checkpoint_path = self.temp_dir / "checkpoint"
+            chunk_dir = self.temp_dir / "chunkformer"
         return OmoAIConfig(
             paths={
-                "chunkformer_dir": self.temp_dir / "chunkformer",
-                "chunkformer_checkpoint": self.temp_dir / "checkpoint"
+                "chunkformer_dir": chunk_dir,
+                "chunkformer_checkpoint": checkpoint_path
             },
             llm={
                 "model_id": "test/model",
@@ -451,10 +484,23 @@ class TestEndToEndValidation(unittest.TestCase):
     
     def _create_test_config(self) -> OmoAIConfig:
         """Create test configuration."""
+        # Ensure required directories exist so OmoAIConfig path validation passes
+        chunk_dir = self.temp_dir / "chunkformer"
+        chkpt_dir = self.temp_dir / "checkpoint"
+        chunk_dir.mkdir(parents=True, exist_ok=True)
+        chkpt_dir.mkdir(parents=True, exist_ok=True)
+        # Prefer using local real ChunkFormer model if available, otherwise fall back to temp dirs
+        model_path = Path("models/chunkformer/chunkformer-large-vie")
+        if model_path.exists():
+            checkpoint_path = model_path
+            chunkformer_dir = model_path.parent
+        else:
+            checkpoint_path = chkpt_dir
+            chunkformer_dir = chunk_dir
         return OmoAIConfig(
             paths={
-                "chunkformer_dir": self.temp_dir / "chunkformer",
-                "chunkformer_checkpoint": self.temp_dir / "checkpoint"
+                "chunkformer_dir": chunkformer_dir,
+                "chunkformer_checkpoint": checkpoint_path
             },
             llm={
                 "model_id": "test/model",
