@@ -10,7 +10,7 @@ A production-ready pipeline to transcribe and summarize long-form audio (e.g., p
 - **Quality Assessment**: Comprehensive metrics including WER, CER, PER, U-WER, and F-WER for evaluating punctuation accuracy.
 - **Summarization**: Bullet points and abstract (single-pass or map-reduce for long texts).
 - **Config-driven**: Single `config.yaml` controls paths, ASR, LLM, API, and outputs.
-- **Outputs**: Always writes `final.json`; optionally writes transcript and summary text files. Programmable formatters available for JSON/Text/SRT/VTT/Markdown.
+- **Outputs**: Always writes `final.json`; optionally writes transcript and summary text files when enabled in config.
 - **CLI & REST API**: Run locally or as a web service.
 
 ## Architecture
@@ -236,30 +236,14 @@ Notes:
 - When no query params are provided to `/pipeline`, the server returns `text/plain` containing the punctuated transcript and summary for convenience.
 - With query params, the server returns structured JSON (`PipelineResponse`).
 - When `return_summary_raw=true` is provided, responses include `summary_raw_text` (JSON) or return the raw summary in text mode.
+- The `/health` endpoint checks `ffmpeg`, configuration file availability, and the presence of script modules/wrappers used by the pipeline.
 
-## Outputs and formatters
+## Outputs
 
-The pipeline always writes `final.json`. With `write_separate_files: true`, it also writes `transcript.txt` and `summary.txt`.
-
-Advanced, programmatic formatting is available via the output writer and plugins (JSON/Text/SRT/VTT/Markdown). Example:
-
-```python
-from pathlib import Path
-from omoai.output.writer import write_outputs
-from omoai.config.schemas import OutputConfig
-
-config = OutputConfig(formats=["json", "text", "srt", "vtt", "md"])
-written = write_outputs(
-    output_dir=Path("data/output/my_run"),
-    segments=segments,                 # list of {start, end, text_raw, text_punct}
-    transcript_raw=transcript_raw,
-    transcript_punct=transcript_punct,
-    summary=summary,                   # {bullets: [...], abstract: "..."}
-    metadata=metadata,                 # optional dict
-    config=config,
-)
-print(written)
-```
+- Always writes `final.json`.
+- When `output.write_separate_files: true` or when `output.formats` includes `text`/`md`, the postprocess script also writes human‑readable text files for the punctuated transcript and summary.
+- When `output.formats` includes `srt` or `vtt`, the postprocess script emits `transcript.srt` and/or `transcript.vtt` alongside `final.json` when `--auto-outdir` is used (API runs do not save extra files by default).
+- Structured output preferences live under the `output:` block in `config.yaml` (including `formats`, transcript/summary options, and `final_json` name). The scripts respect these settings and legacy keys for compatibility.
 
 ## Troubleshooting
 
@@ -287,20 +271,17 @@ uv run pytest
 ├── config.yaml
 ├── data/
 ├── models/
-├── archive/
-│   └── legacy_scripts/
-│       ├── preprocess.py
-│       ├── asr.py
-│       └── post.py
+├── scripts/
+│   ├── preprocess.py
+│   ├── asr.py
+│   └── post.py
 ├── src/
 │   ├── chunkformer/
 │   └── omoai/
 │       ├── api/
-│       ├── output/
-│       │   ├── formatter.py
-│       │   ├── writer.py
-│       │   └── plugins/  # json, text, srt, vtt, md
 │       ├── config/
+│       ├── logging_system/
+│       ├── pipeline/
 │       ├── interactive_cli.py
 │       └── main.py
 └── tests/

@@ -42,7 +42,7 @@ llm:
   trust_remote_code: true
 ```
 
-#### 4. API Configuration (New)
+#### 4. API Configuration
 
 ```yaml
 api:
@@ -61,18 +61,63 @@ api:
   health_check_dependencies:
     - ffmpeg
     - config_file
-    - asr_script
-    - postprocess_script
 ```
+
+#### 5. Output Configuration
+
+Structured output preferences control how files are persisted by the scripts and API. Legacy keys remain for compatibility.
+
+```yaml
+output:
+  # Legacy compatibility
+  write_separate_files: true           # Also controlled by formats below
+  transcript_file: "transcript.txt"    # Legacy filename for text transcript
+  summary_file: "summary.txt"          # Legacy filename for text summary
+  wrap_width: 0                         # Legacy text wrap width; mapped into transcript.wrap_width
+
+  # Structured configuration
+  formats: ["json", "text", "md"]      # json always written; text/md cause human-readable files
+
+  transcript:
+    include_raw: true
+    include_punct: true
+    include_segments: true
+    timestamps: "clock"
+    wrap_width: 100
+    file_raw: "transcript.raw.txt"
+    file_punct: "transcript.punct.txt"
+    file_srt: "transcript.srt"
+    file_vtt: "transcript.vtt"
+    file_segments: "segments.json"
+
+  summary:
+    mode: "both"
+    bullets_max: 7
+    abstract_max_chars: 1000
+    language: "vi"
+    file: "summary.md"
+
+  # Final output filename
+  final_json: "final.json"
+
+  # API persistence
+  save_on_api: true
+  save_formats_on_api: ["final_json", "segments"]
+  api_output_dir: "./data/output/api"
+```
+
+Notes:
+- Scripts always write `final.json`.
+- When `write_separate_files: true` or when `formats` includes `text` or `md`, the scripts also write human-readable transcript and summary files using the filenames above.
 
 ## API Configuration Management
 
 ### Configuration Loader
 
-The API uses a dedicated configuration management system in `omoai/config.py`:
+The API uses a dedicated configuration management system in `omoai/config` (Pydantic-based):
 
 - **Automatic Discovery**: Searches for `config.yaml` in project root or current directory
-- **Type Safety**: Uses dataclasses for configuration validation
+- **Type Safety**: Uses Pydantic models for configuration validation
 - **Global Instance**: Provides singleton access pattern for efficient loading
 - **Error Handling**: Clear error messages for missing or invalid configuration
 
@@ -167,7 +212,7 @@ The health check endpoint (`/health`) uses the configuration to:
 
 1. **Verify Configuration Loading**: Confirms config.yaml is accessible
 2. **Check Dependencies**: Tests each dependency listed in `health_check_dependencies`
-3. **Validate Paths**: Ensures temp directories and script paths exist
+3. **Validate Paths**: Ensures temp directories exist; verifies script modules/wrappers are importable
 4. **Report Settings**: Shows current configuration values
 
 Example health check response:
@@ -178,8 +223,12 @@ Example health check response:
   "details": {
     "ffmpeg": "available",
     "config_file": "found at /home/cetech/omoai/config.yaml",
-    "asr_script": "found",
-    "postprocess_script": "found",
+    "script_modules": {
+      "scripts.asr": "available",
+      "scripts.post": "available",
+      "wrappers.asr": "available",
+      "wrappers.post": "available"
+    },
     "temp_dir": "accessible at /tmp",
     "config_loaded": "yes",
     "max_body_size": "100MB"

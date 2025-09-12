@@ -284,6 +284,77 @@ class SummarizationConfig(BaseModel):
     )
 
 
+class TranscriptOutputConfig(BaseModel):
+    """Configuration for transcript outputs and file naming."""
+
+    include_raw: bool = Field(default=True, description="Include raw transcript in outputs")
+    include_punct: bool = Field(default=True, description="Include punctuated transcript in outputs")
+    include_segments: bool = Field(default=True, description="Include segment list in outputs")
+    timestamps: Literal["none", "s", "ms", "clock"] = Field(default="clock", description="Timestamp format")
+    wrap_width: int = Field(default=100, ge=0, description="Text wrapping width (0 = no wrapping)")
+
+    # Filenames (when writing to disk)
+    file_raw: str = Field(default="transcript.raw.txt")
+    file_punct: str = Field(default="transcript.punct.txt")
+    file_srt: str = Field(default="transcript.srt")
+    file_vtt: str = Field(default="transcript.vtt")
+    file_segments: str = Field(default="segments.json")
+
+
+class SummaryOutputConfig(BaseModel):
+    """Configuration for summary outputs and file naming."""
+
+    mode: Literal["bullets", "abstract", "both", "none"] = Field(default="both")
+    bullets_max: int = Field(default=7, ge=0)
+    abstract_max_chars: int = Field(default=1000, ge=0)
+    language: str = Field(default="vi")
+    file: str = Field(default="summary.md")
+
+
+class OutputConfig(BaseModel):
+    """Top-level output configuration.
+
+    Includes a few legacy compatibility fields used by scripts/post.py. New code
+    should prefer structured `formats`, `transcript`, and `summary` sections.
+    """
+
+    # Legacy compatibility (kept for scripts/post.py behavior)
+    write_separate_files: bool = Field(default=False)
+    transcript_file: str = Field(default="transcript.txt")
+    summary_file: str = Field(default="summary.txt")
+    wrap_width: int = Field(default=0, ge=0)
+
+    # Structured configuration for programmatic outputs
+    formats: List[Literal["json", "text", "srt", "vtt", "md"]] = Field(
+        default_factory=lambda: ["json"], description="Which formats to generate"
+    )
+    transcript: TranscriptOutputConfig = Field(default_factory=TranscriptOutputConfig)
+    summary: SummaryOutputConfig = Field(default_factory=SummaryOutputConfig)
+    final_json: str = Field(default="final.json")
+
+    # API persistence controls
+    save_on_api: bool = Field(default=False)
+    save_formats_on_api: List[Literal["final_json", "segments", "transcripts"]] = Field(
+        default_factory=lambda: ["final_json"]
+    )
+    api_output_dir: Optional[Path] = Field(default=None)
+
+    @model_validator(mode="after")
+    def validate_legacy_mapping(self) -> "OutputConfig":
+        """Provide a simple consistency mapping between legacy and structured fields.
+
+        - If wrap_width is set (>0), prefer it over transcript.wrap_width when writing plain text.
+        """
+        try:
+            if self.wrap_width and self.wrap_width > 0 and self.transcript:
+                # Do not overwrite if transcript.wrap_width explicitly different in configs
+                if (self.transcript.wrap_width or 0) != self.wrap_width:
+                    self.transcript.wrap_width = int(self.wrap_width)
+        except Exception:
+            pass
+        return self
+
+
 class APIConfig(BaseModel):
     """Configuration for API server."""
     
@@ -360,7 +431,7 @@ class OmoAIConfig(BaseSettings):
     )
     punctuation: PunctuationConfig
     summarization: SummarizationConfig
-    output: Optional[dict] = Field(default_factory=lambda: None)  # legacy output config removed; keep placeholder
+    output: Optional[OutputConfig] = Field(default=None, description="Output configuration")
     api: APIConfig = Field(default_factory=APIConfig)
     
     @model_validator(mode="after")

@@ -1894,15 +1894,42 @@ def main() -> None:
             base_dir = candidate
         out_path = base_dir / "final.json"
 
-        # Optional separate files per config
-        if bool(cfg_get(["output", "write_separate_files"], False)):
-            # transcript
+        # Optional separate files per config (supports legacy and structured OutputConfig)
+        out_formats = []
+        try:
+            fmts = cfg_get(["output", "formats"], [])
+            if isinstance(fmts, (list, tuple)):
+                out_formats = [str(x).lower() for x in fmts]
+        except Exception:
+            out_formats = []
+        write_text_files = bool(cfg_get(["output", "write_separate_files"], False)) or ("text" in out_formats or "md" in out_formats)
+
+        if write_text_files:
+            # Legacy defaults
             tf_name = str(cfg_get(["output", "transcript_file"], "transcript.txt"))
             sf_name = str(cfg_get(["output", "summary_file"], "summary.txt"))
+
+            # Prefer structured OutputConfig filenames if available
+            try:
+                out_cfg = cfg.output  # type: ignore[attr-defined]
+                if out_cfg and getattr(out_cfg, "transcript", None):
+                    tcfg = out_cfg.transcript
+                    # Use punctuated transcript file if provided
+                    if getattr(tcfg, "file_punct", None):
+                        tf_name = str(tcfg.file_punct)
+                if out_cfg and getattr(out_cfg, "summary", None):
+                    scfg = out_cfg.summary
+                    if getattr(scfg, "file", None):
+                        sf_name = str(scfg.file)
+            except Exception:
+                pass
             # transcript_punct plain text with optional wrapping
             with open(base_dir / tf_name, "w", encoding="utf-8") as tf:
                 tf_text = (final.get("transcript_punct") or "").strip()
-                wrap_width_cfg = cfg_get(["output", "wrap_width"], 100)
+                # Prefer structured transcript.wrap_width if present (model validator maps legacy)
+                wrap_width_cfg = cfg_get(["output", "transcript", "wrap_width"], None)
+                if wrap_width_cfg is None:
+                    wrap_width_cfg = cfg_get(["output", "wrap_width"], 100)
                 try:
                     wrap_width = int(wrap_width_cfg) if wrap_width_cfg is not None else 0
                 except Exception:
@@ -1937,6 +1964,60 @@ def main() -> None:
                     sf.write("\n")
                 if abstract:
                     sf.write(abstract.strip() + "\n")
+
+        # Write timed text formats if requested via formats
+        try:
+            fmts = set(out_formats)
+        except Exception:
+            fmts = set()
+
+        def _fmt_time_srt(t: float) -> str:
+            # SRT uses comma milliseconds
+            import math as _m
+            t = max(0.0, float(t))
+            hh = int(t // 3600)
+            mm = int((t % 3600) // 60)
+            ss = int(t % 60)
+            ms = int(_m.floor((t - _m.floor(t)) * 1000.0))
+            return f"{hh:02d}:{mm:02d}:{ss:02d},{ms:03d}"
+
+        def _fmt_time_vtt(t: float) -> str:
+            # VTT uses dot milliseconds
+            import math as _m
+            t = max(0.0, float(t))
+            hh = int(t // 3600)
+            mm = int((t % 3600) // 60)
+            ss = int(t % 60)
+            ms = int(_m.floor((t - _m.floor(t)) * 1000.0))
+            return f"{hh:02d}:{mm:02d}:{ss:02d}.{ms:03d}"
+
+        # Prepare filenames from structured config when available
+        srt_name = str(cfg_get(["output", "transcript", "file_srt"], "transcript.srt"))
+        vtt_name = str(cfg_get(["output", "transcript", "file_vtt"], "transcript.vtt"))
+
+        if "srt" in fmts and final.get("segments"):
+            cues = []
+            for idx, seg in enumerate(final["segments"], start=1):
+                start = float(seg.get("start", 0.0) or 0.0)
+                end = float(seg.get("end", start) or start)
+                text = str(seg.get("text_punct") or seg.get("text") or "").strip()
+                if not text:
+                    continue
+                cues.append(f"{idx}\n{_fmt_time_srt(start)} --> {_fmt_time_srt(end)}\n{text}\n")
+            (base_dir / srt_name).write_text("\n".join(cues), encoding="utf-8")
+
+        if "vtt" in fmts and final.get("segments"):
+            lines = ["WEBVTT", ""]
+            for seg in final["segments"]:
+                start = float(seg.get("start", 0.0) or 0.0)
+                end = float(seg.get("end", start) or start)
+                text = str(seg.get("text_punct") or seg.get("text") or "").strip()
+                if not text:
+                    continue
+                lines.append(f"{_fmt_time_vtt(start)} --> {_fmt_time_vtt(end)}")
+                lines.append(text)
+                lines.append("")
+            (base_dir / vtt_name).write_text("\n".join(lines), encoding="utf-8")
 
     save_json(out_path, final)
 

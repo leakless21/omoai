@@ -16,8 +16,9 @@ async def health_check() -> Response[dict]:
 
     Checks:
     - API configuration loading
-    - External dependencies (ffmpeg, scripts)
+    - External dependencies (ffmpeg)
     - Config file accessibility
+    - Script wrapper/module availability (import checks only)
 
     Returns:
         Response with health status and details
@@ -67,13 +68,23 @@ async def health_check() -> Response[dict]:
                     details["config_file"] = f"not found (searched: {[str(p) for p in config_candidates]})"
                     status = "unhealthy"
 
-            elif dependency == "asr_script":
-                # Legacy script dependency - no longer needed with pipeline modules
-                details["asr_script"] = "deprecated (using pipeline modules)"
+            # Legacy keys are intentionally ignored; script-based wrappers are used below
 
-            elif dependency == "postprocess_script":
-                # Legacy script dependency - no longer needed with pipeline modules  
-                details["postprocess_script"] = "deprecated (using pipeline modules)"
+        # Lightweight module availability checks (no heavy imports)
+        try:
+            import importlib.util as _ilus
+            scripts_ok = {
+                "scripts.asr": _ilus.find_spec("scripts.asr") is not None,
+                "scripts.post": _ilus.find_spec("scripts.post") is not None,
+                "wrappers.asr": _ilus.find_spec("omoai.api.scripts.asr_wrapper") is not None,
+                "wrappers.post": _ilus.find_spec("omoai.api.scripts.postprocess_wrapper") is not None,
+            }
+            details["script_modules"] = {k: ("available" if v else "missing") for k, v in scripts_ok.items()}
+            if not all(scripts_ok.values()):
+                # Non-fatal but worth surfacing as degraded
+                status = "degraded" if status == "healthy" else status
+        except Exception:
+            details["script_modules"] = {"error": "module checks failed"}
 
         # Check temp directory
         temp_dir = Path(config.api.temp_dir)
