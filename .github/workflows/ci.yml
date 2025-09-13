@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_full:
+        description: 'Run full tests (no exclusions)'
+        required: false
+        default: 'false'
+
+jobs:
+  unit-fast:
+    name: Unit tests (CPU, fast)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install minimal deps
+        run: |
+          chmod +x scripts/ci-install.sh
+          ./scripts/ci-install.sh
+
+      - name: Run tests with coverage
+        env:
+          OMOAI_CI_RUN_FULL: ${{ github.event.inputs.run_full == 'true' && '1' || '0' }}
+          OMOAI_CI_COVERAGE: '1'
+        run: |
+          chmod +x scripts/test.sh
+          ./scripts/test.sh
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+        if: always()
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: false
+
+  api-smoke:
+    name: API smoke (uvicorn /health)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg curl
+
+      - name: Install minimal deps
+        run: |
+          chmod +x scripts/ci-install.sh
+          ./scripts/ci-install.sh
+
+      - name: Start API and check health
+        run: |
+          nohup python -m uvicorn omoai.api.app:create_app --factory --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          for i in {1..20}; do
+            if curl -sf http://127.0.0.1:8000/health > /dev/null; then
+              echo "Health OK"; break; fi; sleep 1; done
+          curl -sf http://127.0.0.1:8000/health | tee health.json
+          pkill -f uvicorn || true
+
+      - name: Upload uvicorn logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: uvicorn-log
+          path: uvicorn.log
+        if: always()
+
+  asr-smoke:
+    name: ASR smoke (real decode)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with LFS
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install minimal deps
+        run: |
+          chmod +x scripts/ci-install.sh
+          ./scripts/ci-install.sh
+
+      - name: Check checkpoint presence
+        id: chk
+        run: |
+          if [[ -f models/chunkformer/chunkformer-large-vie/pytorch_model.bin ]]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run ASR smoke test
+        if: steps.chk.outputs.found == 'true'
+        run: |
+          python -m pytest -q tests/test_asr_config_fix.py::test_asr_script_with_valid_config
+
+      - name: Skip note (checkpoint missing)
+        if: steps.chk.outputs.found != 'true'
+        run: |
+          echo "Checkpoint not found; skipping ASR smoke."
