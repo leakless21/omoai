@@ -1859,12 +1859,69 @@ def main() -> None:
     except (ValueError, KeyError, TypeError):
         summary_raw_text = None
 
+    # --- Compute quality metrics & diffs ---
+    try:
+        original_text = (
+            (asr.get("transcript_raw") or "")
+            if isinstance(asr, dict)
+            else ""
+        )
+        if not original_text and isinstance(asr, dict):
+            original_text = asr.get("text") or ""
+        if not original_text:
+            # Fallback: join ASR segments' raw text
+            try:
+                original_text = " ".join(
+                    (s.get("text") or s.get("text_raw") or "").strip()
+                    for s in (segments or [])
+                ).strip()
+            except Exception:
+                original_text = ""
+
+        # Compute metrics only if we have something to compare
+        if original_text and transcript_punct:
+            wer_val = _compute_wer(_split_words(original_text), _split_words(transcript_punct))
+            cer_val = _compute_cer(original_text, transcript_punct)
+            per_val = _compute_per(original_text, transcript_punct)
+            uwer_val, fwer_val = _compute_uwer_fwer(original_text, transcript_punct)
+            alignment_conf = punct_coverage  # use coverage as a proxy confidence
+
+            quality_metrics = {
+                "wer": round(float(wer_val), 4),
+                "cer": round(float(cer_val), 4),
+                "per": round(float(per_val), 4),
+                "uwer": round(float(uwer_val), 4),
+                "fwer": round(float(fwer_val), 4),
+                "alignment_confidence": round(float(alignment_conf), 4),
+            }
+
+            # Build a simple human-readable diff
+            diff_output = _generate_human_readable_diff(original_text, transcript_punct)
+            human_diff = {
+                "original_text": original_text,
+                "punctuated_text": transcript_punct,
+                "diff_output": diff_output,
+                "alignment_summary": (
+                    f"coverage={punct_coverage:.4f}, density={punct_density:.4f}, marks={punct_marks}"
+                ),
+            }
+        else:
+            quality_metrics = None
+            human_diff = None
+    except Exception:
+        # Keep pipeline robust; if metrics computation fails, omit them
+        quality_metrics = None
+        human_diff = None
+
     final.update(
         {
             "segments": punct_segments,
             "transcript_punct": transcript_punct,
             "summary": summary,
             "summary_raw_text": summary_raw_text,
+            # New fields produced by postprocess for downstream consumers
+            **({"quality_metrics": quality_metrics} if quality_metrics is not None else {}),
+            **({"diffs": human_diff} if human_diff is not None else {}),
             "metadata": {
                 **asr.get("metadata", {}),
                 "llm_model_punctuation": p_model_id,

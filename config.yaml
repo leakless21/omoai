@@ -31,8 +31,7 @@ asr:
   right_context_size: 128
   device: auto
   autocast_dtype: fp16
-  # Memory management for long audio
-  max_audio_duration_hours: 3 # Hard limit: 2 hours max
+  # NOTE: max_audio_duration_hours was unused and is removed
 
 llm:
   model_id: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
@@ -52,7 +51,8 @@ punctuation:
     max_num_seqs: 1
     max_num_batched_tokens: 512
     trust_remote_code: true
-  preserve_original_words: false
+  # NOTE: preserve_original_words is currently unused by runtime; leave commented if desired
+  # preserve_original_words: false
   auto_switch_ratio: 0.98
   auto_margin_tokens: 128
   # New behavior controls
@@ -178,6 +178,7 @@ output:
     include_raw: true # Include raw transcript in outputs
     include_punct: true # Include punctuated transcript in outputs
     include_segments: true # Include timestamped segments in outputs
+    # timestamps is currently unused by API; timed text writing is handled in scripts
     timestamps: "clock" # Format: "none", "s", "ms", "clock"
     wrap_width: 100 # Text wrapping width (0 = no wrapping)
 
@@ -190,10 +191,11 @@ output:
 
   # Summary output configuration
   summary:
+    # Defaults applied by API when no query params are provided
     mode: "both" # "bullets", "abstract", "both", "none"
-    bullets_max: 7 # Maximum number of bullet points
-    abstract_max_chars: 1000 # Maximum abstract length
-    language: "vi" # Summary language
+    bullets_max: 7 # Maximum number of bullet points (API default)
+    abstract_max_chars: 1000 # Currently unused by runtime
+    language: "vi" # Summary language (passed through)
     file: "summary.md" # Summary output filename
 
   # Final output filename

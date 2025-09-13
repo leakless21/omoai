@@ -407,7 +407,9 @@ def _configure_third_party_loggers(config: LoggingConfig) -> None:
         "torch",
         "transformers",
         "pydantic",
+        "uvicorn",
         "uvicorn.access",
+        "uvicorn.error",
         "litestar.middleware",
     ]
 

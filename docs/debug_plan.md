@@ -91,11 +91,14 @@ We will implement minimal, deterministic fixes without renaming/mapping hacks:
 ### 4.4 Re-export Service Functions (D)
 
 - Add at bottom of `src/omoai/api/services.py`:
+
   ```python
   # Re-exports for legacy test compatibility
   __all__ += ["get_service_status", "warmup_services"]  # already listed but ensure importable
   ```
+
 - Update `tests/test_api_singletons.py` imports to:
+
   ```python
   from omoai.api.services import get_service_status, warmup_services
   ```

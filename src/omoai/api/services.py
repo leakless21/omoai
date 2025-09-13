@@ -457,6 +457,164 @@ async def _run_full_pipeline_script(
         logger.error(f"Failed to load final output: {e!s}")
         raise
 
+    # Optionally persist API outputs to disk based on config.output.save_on_api
+    try:
+        cfg = get_config()
+        save_cfg = getattr(cfg, "output", None)
+        if save_cfg and getattr(save_cfg, "save_on_api", False):
+            # Determine base directory for API outputs
+            try:
+                base_dir = (
+                    Path(save_cfg.api_output_dir)
+                    if getattr(save_cfg, "api_output_dir", None)
+                    else (Path(cfg.paths.out_dir) / "api")
+                )
+            except Exception:
+                base_dir = Path("data/output/api")
+            base_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create a unique subfolder per request
+            from datetime import datetime
+
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            out_dir = base_dir / f"req-{stamp}-{os.urandom(2).hex()}"
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            # Which formats to write
+            fmts = set(getattr(save_cfg, "save_formats_on_api", ["final_json"]))
+
+            # Write final JSON if requested
+            if "final_json" in fmts:
+                final_name = getattr(save_cfg, "final_json", "final.json")
+                with open(out_dir / final_name, "w", encoding="utf-8") as wf:
+                    json.dump(final_obj, wf, ensure_ascii=False, indent=2)
+
+            # Write segments if requested
+            if "segments" in fmts:
+                seg_name = getattr(getattr(save_cfg, "transcript", None), "file_segments", "segments.json")
+                with open(out_dir / seg_name, "w", encoding="utf-8") as ws:
+                    json.dump(list(final_obj.get("segments", []) or []), ws, ensure_ascii=False, indent=2)
+
+            # Write transcripts if requested
+            if "transcripts" in fmts:
+                tcfg = getattr(save_cfg, "transcript", None)
+                file_raw = getattr(tcfg, "file_raw", "transcript.raw.txt")
+                file_punct = getattr(tcfg, "file_punct", "transcript.punct.txt")
+                try:
+                    raw_text = str(final_obj.get("transcript_raw", "") or "").strip()
+                except Exception:
+                    raw_text = ""
+                try:
+                    punct_text = str(final_obj.get("transcript_punct", "") or "").strip()
+                except Exception:
+                    punct_text = ""
+                if raw_text:
+                    (out_dir / file_raw).write_text(raw_text + "\n", encoding="utf-8")
+                if punct_text:
+                    (out_dir / file_punct).write_text(punct_text + "\n", encoding="utf-8")
+
+            # Timed text helpers
+            def _fmt_time_srt(t: float) -> str:
+                import math as _m
+                t = max(0.0, float(t))
+                hh = int(t // 3600)
+                mm = int((t % 3600) // 60)
+                ss = int(t % 60)
+                ms = _m.floor((t - _m.floor(t)) * 1000.0)
+                return f"{hh:02d}:{mm:02d}:{ss:02d},{ms:03d}"
+
+            def _fmt_time_vtt(t: float) -> str:
+                import math as _m
+                t = max(0.0, float(t))
+                hh = int(t // 3600)
+                mm = int((t % 3600) // 60)
+                ss = int(t % 60)
+                ms = _m.floor((t - _m.floor(t)) * 1000.0)
+                return f"{hh:02d}:{mm:02d}:{ss:02d}.{ms:03d}"
+
+            # Write SRT
+            if "srt" in fmts and final_obj.get("segments"):
+                srt_name = getattr(getattr(save_cfg, "transcript", None), "file_srt", "transcript.srt")
+                cues = []
+                idx = 1
+                for seg in list(final_obj.get("segments", []) or []):
+                    try:
+                        start = float(seg.get("start", 0.0) or 0.0)
+                        end = float(seg.get("end", start) or start)
+                        text = str(seg.get("text_punct") or seg.get("text") or "").strip()
+                    except Exception:
+                        continue
+                    if not text:
+                        continue
+                    cues.append(f"{idx}\n{_fmt_time_srt(start)} --> {_fmt_time_srt(end)}\n{text}\n")
+                    idx += 1
+                if cues:
+                    (out_dir / srt_name).write_text("\n".join(cues), encoding="utf-8")
+
+            # Write VTT
+            if "vtt" in fmts and final_obj.get("segments"):
+                vtt_name = getattr(getattr(save_cfg, "transcript", None), "file_vtt", "transcript.vtt")
+                lines = ["WEBVTT", ""]
+                for seg in list(final_obj.get("segments", []) or []):
+                    try:
+                        start = float(seg.get("start", 0.0) or 0.0)
+                        end = float(seg.get("end", start) or start)
+                        text = str(seg.get("text_punct") or seg.get("text") or "").strip()
+                    except Exception:
+                        continue
+                    if not text:
+                        continue
+                    lines.append(f"{_fmt_time_vtt(start)} --> {_fmt_time_vtt(end)}")
+                    lines.append(text)
+                    lines.append("")
+                if len(lines) > 2:
+                    (out_dir / vtt_name).write_text("\n".join(lines), encoding="utf-8")
+
+            # Write Markdown (summary + transcript)
+            if "md" in fmts:
+                # Summary.md
+                sum_name = getattr(getattr(save_cfg, "summary", None), "file", "summary.md")
+                summary = final_obj.get("summary") or {}
+                title = ""
+                abstract = ""
+                points: list[str] = []
+                try:
+                    if isinstance(summary, dict):
+                        title = str(summary.get("title", "") or "").strip()
+                        abstract = str(summary.get("abstract", "") or summary.get("summary", "") or "").strip()
+                        pts = summary.get("points") or summary.get("bullets") or []
+                        if isinstance(pts, list):
+                            points = [str(p) for p in pts if str(p).strip()]
+                except Exception:
+                    pass
+                md_parts: list[str] = []
+                if title:
+                    md_parts.append(f"# {title}")
+                if abstract:
+                    md_parts.append(abstract)
+                if points:
+                    md_parts.append("\n## Points\n")
+                    md_parts.extend([f"- {p}" for p in points])
+                if md_parts:
+                    (out_dir / sum_name).write_text("\n\n".join(md_parts).strip() + "\n", encoding="utf-8")
+
+                # Transcript.md
+                t_md_name = "transcript.md"
+                try:
+                    t_text = str(final_obj.get("transcript_punct", "") or "").strip()
+                except Exception:
+                    t_text = ""
+                if t_text:
+                    (out_dir / t_md_name).write_text(f"# Transcript\n\n{t_text}\n", encoding="utf-8")
+
+            logger.info("Saved API outputs", extra={"dir": str(out_dir), "formats": list(fmts)})
+    except Exception as e:
+        # Do not fail the request if persistence fails; log and continue
+        try:
+            logger.warning("Failed to save API outputs", extra={"error": str(e)})
+        except Exception:
+            pass
+
     # Use summary keys as produced by postprocess; keep 'bullets' for compatibility
     final_summary = final_obj.get("summary", {}) or {}
 
@@ -495,20 +653,39 @@ async def _run_full_pipeline_script(
         quality_metrics = None
         diffs = None
 
-        if output_params.include_quality_metrics and "quality_metrics" in final_obj:
+        # Parse metrics/diffs if present in final JSON (controller decides whether to expose)
+        if "quality_metrics" in final_obj:
             quality_metrics_data = final_obj["quality_metrics"]
             from omoai.api.models import QualityMetrics
 
-            quality_metrics = QualityMetrics(**quality_metrics_data)
+            try:
+                quality_metrics = QualityMetrics(**quality_metrics_data)
+                try:
+                    logger.info(
+                        "Included quality_metrics in pipeline response",
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                quality_metrics = None
 
-        if output_params.include_diffs and "diffs" in final_obj:
+        if "diffs" in final_obj:
             diffs_data = final_obj["diffs"]
             from omoai.api.models import HumanReadableDiff
 
-            if isinstance(diffs_data, list) and diffs_data:
-                diffs = HumanReadableDiff(**diffs_data[0])
-            elif isinstance(diffs_data, dict):
-                diffs = HumanReadableDiff(**diffs_data)
+            try:
+                if isinstance(diffs_data, list) and diffs_data:
+                    diffs = HumanReadableDiff(**diffs_data[0])
+                elif isinstance(diffs_data, dict):
+                    diffs = HumanReadableDiff(**diffs_data)
+                try:
+                    logger.info(
+                        "Included diffs in pipeline response",
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                diffs = None
 
         response_obj = PipelineResponse(
             summary=filtered_summary,
@@ -525,24 +702,36 @@ async def _run_full_pipeline_script(
     quality_metrics = None
     diffs = None
 
-    if (
-        output_params
-        and output_params.include_quality_metrics
-        and "quality_metrics" in final_obj
-    ):
+    if "quality_metrics" in final_obj:
         quality_metrics_data = final_obj["quality_metrics"]
         from omoai.api.models import QualityMetrics
 
-        quality_metrics = QualityMetrics(**quality_metrics_data)
+        try:
+            quality_metrics = QualityMetrics(**quality_metrics_data)
+            try:
+                import logging as _log
+                _log.getLogger(__name__).info("Included quality_metrics in response")
+            except Exception:
+                pass
+        except Exception:
+            quality_metrics = None
 
-    if output_params and output_params.include_diffs and "diffs" in final_obj:
+    if "diffs" in final_obj:
         diffs_data = final_obj["diffs"]
         from omoai.api.models import HumanReadableDiff
 
-        if isinstance(diffs_data, list) and diffs_data:
-            diffs = HumanReadableDiff(**diffs_data[0])
-        elif isinstance(diffs_data, dict):
-            diffs = HumanReadableDiff(**diffs_data)
+        try:
+            if isinstance(diffs_data, list) and diffs_data:
+                diffs = HumanReadableDiff(**diffs_data[0])
+            elif isinstance(diffs_data, dict):
+                diffs = HumanReadableDiff(**diffs_data)
+            try:
+                import logging as _log
+                _log.getLogger(__name__).info("Included diffs in response")
+            except Exception:
+                pass
+        except Exception:
+            diffs = None
 
     summary_data = final_obj.get("summary", {}) or {}
 

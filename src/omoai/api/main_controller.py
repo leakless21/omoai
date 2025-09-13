@@ -7,6 +7,7 @@ from litestar.params import Body
 from litestar.response import Redirect, Response
 
 from omoai.api.models import OutputFormatParams, PipelineRequest, PipelineResponse
+from omoai.config.schemas import get_config
 from omoai.api.services import run_full_pipeline
 
 # Set up logger
@@ -88,6 +89,27 @@ class MainController(Controller):
             return_summary_raw=return_summary_raw,
         )
 
+        # Apply defaults from configuration when not provided via query
+        try:
+            cfg = get_config()
+            out_cfg = getattr(cfg, "output", None)
+            sum_cfg = getattr(out_cfg, "summary", None)
+            if out_cfg and sum_cfg:
+                if output_params.summary is None and getattr(sum_cfg, "mode", None):
+                    output_params.summary = sum_cfg.mode  # type: ignore[assignment]
+                if (
+                    output_params.summary_bullets_max is None
+                    and getattr(sum_cfg, "bullets_max", None) is not None
+                ):
+                    output_params.summary_bullets_max = int(sum_cfg.bullets_max)  # type: ignore[assignment]
+                if (
+                    output_params.summary_lang is None
+                    and getattr(sum_cfg, "language", None)
+                ):
+                    output_params.summary_lang = str(sum_cfg.language)  # type: ignore[assignment]
+        except Exception:
+            pass
+
         # Debug logging to validate query parameter parsing
         logger.info(
             f"Received query parameters - summary: {summary}, summary_bullets_max: {summary_bullets_max}, include: {include}"
@@ -167,6 +189,22 @@ class MainController(Controller):
                     segments=[],  # Exclude segments by default
                     transcript_punct=result.transcript_punct,
                     transcript_raw=getattr(result, "transcript_raw", None),
+                    # Pass through optional fields when requested
+                    quality_metrics=(
+                        getattr(result, "quality_metrics", None)
+                        if include_quality_metrics
+                        else None
+                    ),
+                    diffs=(
+                        getattr(result, "diffs", None)
+                        if include_diffs
+                        else None
+                    ),
+                    summary_raw_text=(
+                        getattr(result, "summary_raw_text", None)
+                        if return_summary_raw
+                        else None
+                    ),
                 )
                 logger.info(
                     f"PipelineResponse created successfully: {type(response_obj)}"
@@ -221,6 +259,18 @@ class MainController(Controller):
             # Add raw transcript only if explicitly requested
             if include_raw:
                 response_data["transcript_raw"] = getattr(result, "transcript_raw", "")
+
+            # Forward optional fields when requested
+            if include_quality_metrics:
+                response_data["quality_metrics"] = getattr(
+                    result, "quality_metrics", None
+                )
+            if include_diffs:
+                response_data["diffs"] = getattr(result, "diffs", None)
+            if return_summary_raw:
+                response_data["summary_raw_text"] = getattr(
+                    result, "summary_raw_text", None
+                )
 
             logger.info("Creating PipelineResponse with response_data")
             response_obj = PipelineResponse(**response_data)

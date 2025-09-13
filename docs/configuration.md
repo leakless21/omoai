@@ -102,13 +102,38 @@ output:
 
   # API persistence
   save_on_api: true
-  save_formats_on_api: ["final_json", "segments"]
+  # Valid formats: final_json, segments, transcripts, srt, vtt, md
+  save_formats_on_api: ["final_json", "segments", "transcripts", "srt", "vtt", "md"]
   api_output_dir: "./data/output/api"
 ```
 
 Notes:
+
 - Scripts always write `final.json`.
-- When `write_separate_files: true` or when `formats` includes `text` or `md`, the scripts also write human-readable transcript and summary files using the filenames above.
+- When `write_separate_files: true` or when `formats` includes `text`/`md`, scripts also write human‑readable transcript and summary files using the configured filenames.
+- API persistence mirrors script outputs when `output.save_on_api: true`. It writes the formats requested in `output.save_formats_on_api` to per‑request folders under `output.api_output_dir`.
+
+### Summary defaults for API
+
+When the `/pipeline` query does not specify summary options, the API defaults to:
+
+- `output.summary.mode` → default for `summary` query
+- `output.summary.bullets_max` → default for `summary_bullets_max`
+- `output.summary.language` → default for `summary_lang`
+
+### Logging text file options
+
+In addition to JSONL logging, you can enable a human‑readable log file:
+
+```yaml
+logging:
+  enable_file: true
+  log_file: "@logs/api_server.jsonl"
+  enable_text_file: true
+  text_log_file: "@logs/api_server.log"
+```
+
+The `@logs/` prefix is normalized to the local `./logs/` directory.
 
 ## API Configuration Management
 

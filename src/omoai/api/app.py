@@ -3,6 +3,7 @@ import os
 
 import uvicorn
 from litestar import Litestar
+from litestar.middleware import DefineMiddleware
 from litestar.exceptions import HTTPException
 from litestar.response import Response
 
@@ -12,6 +13,7 @@ from omoai.api.health import health_check
 from omoai.api.main_controller import MainController
 from omoai.api.postprocess_controller import PostprocessController
 from omoai.api.preprocess_controller import PreprocessController
+from omoai.api.timeout_middleware import RequestTimeoutMiddleware
 from omoai.config.schemas import get_config
 from omoai.logging_system.logger import setup_logging
 
@@ -79,6 +81,9 @@ def create_app() -> Litestar:
     # Configure the unified logging system once, using config.yaml
     setup_logging()
 
+    # Configure request timeout middleware from config
+    timeout_seconds = float(config.api.request_timeout_seconds)
+
     return Litestar(
         route_handlers=[
             MainController,
@@ -90,6 +95,9 @@ def create_app() -> Litestar:
         on_startup=[],
         # Use unified stdlib logging configured by setup_logging()
         logging_config=None,
+        middleware=[
+            DefineMiddleware(RequestTimeoutMiddleware, timeout_seconds=timeout_seconds)
+        ],
         request_max_body_size=config.api.max_body_size_mb
         * 1024
         * 1024,  # Convert MB to bytes,
@@ -102,15 +110,30 @@ def create_app() -> Litestar:
 
 
 def main():
+    # Configure logging before starting uvicorn to ensure consistent behavior
+    setup_logging()
+    
+    # Get configuration for server settings
+    config = get_config()
+    
+    # Determine log level based on config
+    log_level = "info"
+    if config.logging and config.logging.debug_mode:
+        log_level = "debug"
+    elif config.logging and config.logging.level:
+        log_level = config.logging.level.lower()
+    
     uvicorn.run(
         "omoai.api.app:create_app",
         factory=True,
-        host="0.0.0.0",
-        port=8000,
+        host=config.api.host,
+        port=config.api.port,
         reload=True,
         reload_dirs=["src", "scripts"],
         reload_excludes=[".venv/*"],
         workers=int(os.environ.get("UVICORN_WORKERS", 1)),
+        log_config=None,  # Disable uvicorn's logging config, let Loguru handle it
+        log_level=log_level,
     )
 
 

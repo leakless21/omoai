@@ -16,7 +16,6 @@ This document provides a comprehensive reference for the OmoAI RESTful API, incl
 - [Response Formats](#response-formats)
 - [Error Handling](#error-handling)
 - [Rate Limiting](#rate-limiting)
-- [Service Modes](#service-modes)
 
 ## Overview
 
@@ -33,6 +32,34 @@ The API uses a robust, script-based pipeline for all stages:
 - ASR via the `scripts.asr` module
 - Postprocess via the `scripts.post` module
 
+API Persistence
+- Controlled by `output.save_on_api` (default false). When true, the API saves artifacts per request under `output.api_output_dir` (default: `paths.out_dir/api`).
+- Files written are controlled by `output.save_formats_on_api` (choose any subset):
+  - `final_json`: writes the full final JSON (includes `quality_metrics`/`diffs` when present)
+  - `segments`: writes `segments.json`
+  - `transcripts`: writes `transcript.raw.txt` and `transcript.punct.txt`
+  - `srt`: writes `transcript.srt` using `output.transcript.file_srt`
+  - `vtt`: writes `transcript.vtt` using `output.transcript.file_vtt`
+  - `md`: writes `summary.md` (using `output.summary.file`) and `transcript.md`
+
+Request Timeouts
+- Configure max request duration via `api.request_timeout_seconds`. Requests exceeding this limit are aborted by a timeout middleware.
+
+Summary Defaults
+- When no summary-related query params are provided, the API uses defaults from `output.summary`:
+  - `mode` -> defaults `summary`
+  - `bullets_max` -> defaults `summary_bullets_max`
+  - `language` -> defaults `summary_lang`
+
+Example persistence config:
+
+```yaml
+output:
+  save_on_api: true
+  save_formats_on_api: ["final_json", "segments", "transcripts", "srt", "vtt", "md"]
+  api_output_dir: "./data/output/api"
+```
+
 ## Authentication
 
 Currently, the API does not require authentication. This is suitable for local development and controlled environments. For production deployments, consider implementing authentication through:
@@ -45,7 +72,7 @@ Currently, the API does not require authentication. This is suitable for local d
 
 The base URL for the API depends on your deployment:
 
-```
+```text
 http://localhost:8000  # Local development
 https://api.yourdomain.com  # Production deployment
 ```
@@ -174,14 +201,14 @@ See the [Pipeline Endpoint Guide](./pipeline_endpoint.md) for detailed examples 
 
 Preprocess an audio file for ASR processing.
 
-#### Request
+#### Preprocess Request
 
 - **Method**: POST
 - **Content-Type**: multipart/form-data
 - **Body**:
   - `audio_file`: Audio file to preprocess (required)
 
-#### Example Request
+#### Preprocess Example Request
 
 ```bash
 curl -X POST "http://localhost:8000/preprocess" \
@@ -189,7 +216,7 @@ curl -X POST "http://localhost:8000/preprocess" \
   -H "Accept: application/json"
 ```
 
-#### Response
+#### Preprocess Response
 
 ```json
 {
@@ -203,14 +230,14 @@ curl -X POST "http://localhost:8000/preprocess" \
 
 Perform automatic speech recognition on a preprocessed audio file.
 
-#### Request
+#### ASR Request
 
 - **Method**: POST
 - **Content-Type**: application/json
 - **Body**:
   - `preprocessed_path`: Path to preprocessed audio file (required)
 
-#### Example Request
+#### ASR Example Request
 
 ```bash
 curl -X POST "http://localhost:8000/asr" \
@@ -218,7 +245,7 @@ curl -X POST "http://localhost:8000/asr" \
   -d '{"preprocessed_path": "/tmp/preprocessed_audio.wav"}'
 ```
 
-#### Response
+#### ASR Response
 
 The response now includes the raw transcription by default.
 
@@ -242,7 +269,7 @@ The response now includes the raw transcription by default.
 
 Apply post-processing to ASR output including punctuation and summarization.
 
-#### Request
+#### Postprocess Request
 
 - **Method**: POST
 - **Content-Type**: application/json
@@ -250,7 +277,7 @@ Apply post-processing to ASR output including punctuation and summarization.
   - `asr_output`: ASR output object (required)
   - Query parameters for post-processing options (optional)
 
-#### Example Request
+#### Postprocess Example Request
 
 ```bash
 curl -X POST "http://localhost:8000/postprocess?summary=both" \
@@ -258,7 +285,7 @@ curl -X POST "http://localhost:8000/postprocess?summary=both" \
   -d '{"asr_output": {"segments": [...]}}'
 ```
 
-#### Response
+#### Postprocess Response
 
 ```json
 {
@@ -319,13 +346,13 @@ curl -X POST "http://localhost:8000/postprocess?summary=both" \
 
 Check the health status of the API and its dependencies.
 
-#### Example Request
+#### Health Check Example Request
 
 ```bash
 curl -X GET "http://localhost:8000/health"
 ```
 
-#### Response
+#### Health Check Response
 
 ```json
 {
@@ -363,7 +390,7 @@ Default format with structured data:
 
 Plain text response suitable for simple integration:
 
-```
+```text
 The punctuated transcript text.
 
 # Summary Points
@@ -480,13 +507,13 @@ Interactive API documentation is available at `/schema` when the server is runni
 - Example requests and responses
 - Real-time API exploration
 
-Access the documentation at: http://localhost:8000/schema
+Access the documentation at: <http://localhost:8000/schema>
 
-# Pipeline Endpoint Guide
+## Pipeline Endpoint Guide
 
 This document provides a comprehensive guide to the `/pipeline/` endpoint, including detailed examples of different configurations and their responses.
 
-## Overview
+## Pipeline Overview
 
 The `/pipeline/` endpoint is the primary interface to the OmoAI audio processing system. It executes the complete workflow:
 
@@ -521,7 +548,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=both&include=segments&ts=ms
   -H "Accept: application/json"
 ```
 
-## Query Parameters
+## Pipeline Query Parameters
 
 All query parameters are optional. If none are provided, the endpoint returns a default response with punctuated transcript and summary.
 
@@ -671,7 +698,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=bullets&summary_bullets_max
 
 **Response:**
 
-````json
+```json
 {
   "summary": {
     "bullets": [
@@ -690,7 +717,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=bullets&summary_bullets_max
 curl -X POST "http://localhost:8000/pipeline" \
   -F "audio_file=@presentation.mp3" \
   -H "Accept: application/json"
-````
+```
 
 **Response:**
 
@@ -702,11 +729,12 @@ curl -X POST "http://localhost:8000/pipeline" \
 }
 ```
 
-"segments": [],
-"transcript_punct": "Quantum computing represents a fundamental paradigm shift in computation. Unlike classical bits, qubits can exist in multiple states simultaneously through superposition. The phenomenon of entanglement enables quantum teleportation and quantum communication. Quantum algorithms can solve certain problems exponentially faster than classical algorithms. However, current quantum computers are in the NISQ era, facing significant challenges in error correction and scalability."
+```json
+{
+  "segments": [],
+  "transcript_punct": "Quantum computing represents a fundamental paradigm shift in computation. Unlike classical bits, qubits can exist in multiple states simultaneously through superposition. The phenomenon of entanglement enables quantum teleportation and quantum communication. Quantum algorithms can solve certain problems exponentially faster than classical algorithms. However, current quantum computers are in the NISQ era, facing significant challenges in error correction and scalability."
 }
-
-````
+```
 
 ### 4. Abstract Summary Only
 
@@ -716,7 +744,7 @@ curl -X POST "http://localhost:8000/pipeline" \
 curl -X POST "http://localhost:8000/pipeline?summary=abstract" \
   -F "audio_file=@presentation.mp3" \
   -H "Accept: application/json"
-````
+```
 
 **Response:**
 
@@ -762,7 +790,7 @@ curl -X POST "http://localhost:8000/pipeline?formats=text" \
 
 **Response:**
 
-```
+```text
 The quarterly review meeting covered several key topics. Financial performance exceeded expectations with a 15% growth in revenue. The marketing team presented their new campaign strategy. HR announced upcoming changes to remote work policies.
 
 # Summary Points
@@ -1049,7 +1077,7 @@ curl -X POST "http://localhost:8000/pipeline?include=segments&ts=clock" \
 }
 ```
 
-## Error Handling
+## Pipeline Error Handling
 
 ### Invalid Audio File
 
@@ -1126,7 +1154,7 @@ curl -X POST "http://localhost:8000/pipeline" \
    - Set `summary_lang` appropriately for your content
    - Note that transcription language depends on the ASR model
 
-# Progress Reporting
+## Progress Reporting
 
 The OmoAI API provides a progress reporting feature for long-running asynchronous tasks. This allows you to monitor the progress of a task as it moves through the processing pipeline.
 

@@ -79,10 +79,12 @@ and are merged over `config.yaml`.
 
 ## Migration Steps
 
-1) Dependency
+1. Dependency
+
 - Add `loguru` to `pyproject.toml` dependencies.
 
-2) Implement Loguru setup inside `logging_system`
+1. Implement Loguru setup inside `logging_system`
+
 - File: `src/omoai/logging_system/logger.py`
   - Update `setup_logging()` to:
     - Read merged `LoggingSettings` from `config.yaml` and env.
@@ -101,12 +103,14 @@ and are merged over `config.yaml`.
     - Decorators (`performance_context`, `with_request_context`) → bind context
       into logger; ensure context is included in outputs.
 
-3) Third‑party capture and noise control
+1. Third‑party capture and noise control
+
 - Ensure `uvicorn`, `litestar`, `transformers`, `torch`, `pydantic`,
   `urllib3` logs are captured via stdlib interception.
 - Set noise levels: WARNING by default; DEBUG when `debug_mode` is true.
 
-4) API and scripts entrypoints
+1. API and scripts entrypoints
+
 - API (`src/omoai/api/app.py`) already calls `setup_logging()` and passes
   `logging_config=None` to Litestar; no further changes needed.
 - Scripts (e.g., `scripts/asr.py`):
@@ -121,17 +125,20 @@ logger = get_logger(__name__)
 logger.info("script started")
 ```
 
-5) Context and correlation
+1. Context and correlation
+
 - Provide `get_component_logger(component, **ctx)` → `logger.bind(component=..., **ctx)`.
 - For requests, add middleware/decorators to bind `request_id`, `path`,
   `client_ip`; these extras should appear in JSON lines and optionally in the
   console format.
 
-6) Security and redaction
+1. Security and redaction
+
 - Add a redaction filter for common secret patterns (e.g., bearer tokens, API
   keys). Make it opt‑in via config/env to avoid false positives.
 
-7) Tests
+1. Tests
+
 - Add tests under `tests/logging/`:
   - Console sink: capture and assert level/format (smoke test).
   - File JSON sink: write to temp file; parse lines and validate keys (time,
@@ -143,12 +150,14 @@ logger.info("script started")
   - Context binding: `logger.bind(request_id=...)` appears in output.
   - Alias expansion: `@logs/test.jsonl` becomes `logs/test.jsonl`.
 
-8) Documentation
+1. Documentation
+
 - Keep this document in `docs/loguru-migration.md`.
 - Add `docs/logging.md` with usage examples, sink descriptions, and production
   tips once migration is complete.
 
-9) Cleanup
+1. Cleanup
+
 - Remove legacy stdlib‑specific formatters/handlers from `logging_system` once
   all entrypoints are migrated and tests pass.
 
@@ -182,4 +191,3 @@ logger.info("script started")
 After implementing the above, all logging (application and dependencies) will
 flow through Loguru, be controlled by `config.yaml`, and write cleanly to the
 console and rotated JSONL files in `./logs/`.
-

@@ -142,6 +142,7 @@ python -m pytest tests/test_cuda_multiprocessing_fix.py::TestCUDAMultiprocessing
    ```
 
 3. Monitor CUDA state:
+
    ```python
    import torch
    print(f"CUDA available: {torch.cuda.is_available()}")

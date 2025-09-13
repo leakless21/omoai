@@ -28,10 +28,17 @@ class LoggingSettings(BaseModel):
     )
     enable_console: bool = Field(default=True, description="Enable console output")
     enable_file: bool = Field(default=False, description="Enable file output")
+    # Optional human-readable text log alongside JSON
+    enable_text_file: bool = Field(
+        default=False, description="Enable text log file output"
+    )
 
     # File logging
     log_file: Path | None = Field(
         default=Path("logs/app.log"), description="Log file path"
+    )
+    text_log_file: Path | None = Field(
+        default=Path("logs/app.log"), description="Text log file path"
     )
     max_file_size: int = Field(
         default=10 * 1024 * 1024, description="Max file size in bytes"
@@ -68,6 +75,16 @@ class LoggingSettings(BaseModel):
     @classmethod
     def normalize_log_file(cls, v: Path | None) -> Path | None:
         """Normalize @logs/ alias to ./logs/ for convenience."""
+        if v is None:
+            return v
+        s = str(v)
+        if s.startswith("@logs/"):
+            return Path("logs") / s[len("@logs/") :]
+        return v
+
+    @field_validator("text_log_file")
+    @classmethod
+    def normalize_text_log_file(cls, v: Path | None) -> Path | None:
         if v is None:
             return v
         s = str(v)
