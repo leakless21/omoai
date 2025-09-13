@@ -134,7 +134,7 @@ async def test_pipeline_exposes_transcript_raw():
     async def fake_run_full_pipeline(data, params):
         return SimpleNamespace(
             transcript_punct="This is punctuated.",
-            summary={"title": "T", "summary": "A", "points": ["p"]},
+            summary={"title": "T", "summary": "A", "bullets": ["p"]},
             segments=[],
             transcript_raw=expected_raw,
         )
@@ -146,7 +146,7 @@ async def test_pipeline_exposes_transcript_raw():
         app = create_app()
         with TestClient(app=app) as client:
             resp = client.post(
-                "/pipeline", files={"audio_file": ("a.wav", b"123", "audio/wav")}
+                "/v1/pipeline", files={"audio_file": ("a.wav", b"123", "audio/wav")}
             )
             assert resp.status_code in (200, 201)
             data = resp.json()

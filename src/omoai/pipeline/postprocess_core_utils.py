@@ -249,11 +249,11 @@ def _parse_vietnamese_labeled_text(text: str) -> dict[str, Any] | None:
     """
     Parse structured Vietnamese/English labeled summary blocks.
 
-    Returns dict:
+    Returns dict (bullets-only schema):
       {
         "title": str,
         "abstract": str,
-        "points": List[str]
+        "bullets": List[str]
       }
     or None if no recognized labels.
     """
@@ -380,7 +380,7 @@ def _parse_vietnamese_labeled_text(text: str) -> dict[str, Any] | None:
     return {
         "title": title,
         "abstract": abstract,
-        "points": points,
+        "bullets": points,
     }
 
 

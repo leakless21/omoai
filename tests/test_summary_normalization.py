@@ -12,7 +12,7 @@ def test_normalize_summary_from_dict_bullets_and_abstract():
     assert out["title"] == "Sample Title"
     assert out["summary"] == "This is an abstract."
     assert out["abstract"] == "This is an abstract."
-    assert out["points"] == ["A", "B"]
+    assert out["bullets"] == ["A", "B"]
 
 
 def test_normalize_summary_from_labeled_text_vi():
@@ -27,4 +27,4 @@ def test_normalize_summary_from_labeled_text_vi():
     assert out["title"].lower().startswith("demo")
     # Should not include the label prefix 'Tóm tắt:'
     assert not out["summary"].lower().startswith("tóm tắt:")
-    assert out["points"] == ["Mục 1", "Mục 2"]
+    assert out["bullets"] == ["Mục 1", "Mục 2"]

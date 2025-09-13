@@ -13,7 +13,7 @@ async def test_controller_includes_metrics_and_diffs_when_requested(monkeypatch)
 
     async def fake_run_full_pipeline(data, params):
         return PipelineResponse(
-            summary={"title": "t", "summary": "a", "points": ["p1"]},
+            summary={"title": "t", "summary": "a", "bullets": ["p1"]},
             segments=[],
             transcript_punct="Hello.",
             quality_metrics=QualityMetrics(wer=0.1, cer=0.05, alignment_confidence=0.9),
@@ -33,7 +33,7 @@ async def test_controller_includes_metrics_and_diffs_when_requested(monkeypatch)
     app = create_app()
     with TestClient(app=app) as client:
         resp = client.post(
-            "/pipeline?include_quality_metrics=true&include_diffs=true&return_summary_raw=true",
+            "/v1/pipeline?include_quality_metrics=true&include_diffs=true&return_summary_raw=true",
             files={"audio_file": ("a.wav", b"123", "audio/wav")},
         )
         assert resp.status_code in (200, 201)
@@ -55,9 +55,9 @@ async def test_controller_excludes_metrics_and_diffs_when_not_requested(monkeypa
     )
 
     async def fake_run_full_pipeline(data, params):
-        # service may compute metrics/diffs but controller should omit them when not requested
+        # service may compute metrics/diffs but API should omit them when not requested
         return PipelineResponse(
-            summary={"title": "t", "summary": "a", "points": []},
+            summary={"title": "t", "summary": "a", "bullets": []},
             segments=[],
             transcript_punct="Hello.",
             quality_metrics=QualityMetrics(wer=0.1),
@@ -72,12 +72,11 @@ async def test_controller_excludes_metrics_and_diffs_when_not_requested(monkeypa
     app = create_app()
     with TestClient(app=app) as client:
         resp = client.post(
-            "/pipeline", files={"audio_file": ("a.wav", b"123", "audio/wav")}
+            "/v1/pipeline", files={"audio_file": ("a.wav", b"123", "audio/wav")}
         )
         assert resp.status_code in (200, 201)
         data = resp.json()
-        # Not requested => omitted
+        # Not requested => omitted by default
         assert data.get("quality_metrics") is None
         assert data.get("diffs") is None
         assert data.get("summary_raw_text") is None
-

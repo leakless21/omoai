@@ -17,7 +17,7 @@ def test_health_unhealthy_when_ffmpeg_missing(monkeypatch):
 
     app = create_app()
     with TestClient(app=app) as client:
-        resp = client.get("/health")
+        resp = client.get("/v1/health")
         # Unhealthy should map to 500
         assert resp.status_code == 500
         data = resp.json()

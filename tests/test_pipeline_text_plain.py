@@ -9,7 +9,7 @@ async def test_pipeline_text_plain_response(monkeypatch):
 
     async def fake_run_full_pipeline(data, params):
         return PipelineResponse(
-            summary={"title": "T", "summary": "Abstract", "points": ["P1", "P2"]},
+            summary={"title": "T", "summary": "Abstract", "bullets": ["P1", "P2"]},
             segments=[],
             transcript_punct="Hello world.",
         )
@@ -22,7 +22,7 @@ async def test_pipeline_text_plain_response(monkeypatch):
     with TestClient(app=app) as client:
         # Provide a small file to satisfy multipart form
         resp = client.post(
-            "/pipeline?formats=text",
+            "/v1/pipeline?formats=text",
             files={"audio_file": ("a.wav", b"123", "audio/wav")},
         )
         assert resp.status_code == 200 or resp.status_code == 201
@@ -40,7 +40,7 @@ async def test_pipeline_text_plain_return_raw(monkeypatch):
     async def fake_run_full_pipeline(data, params):
         # service would normally include raw only when requested; directly include here for controller test
         return PipelineResponse(
-            summary={"title": "T", "summary": "A", "points": []},
+            summary={"title": "T", "summary": "A", "bullets": []},
             segments=[],
             transcript_punct=None,
             summary_raw_text="Title: Raw\nSummary: Raw text",
@@ -53,7 +53,7 @@ async def test_pipeline_text_plain_return_raw(monkeypatch):
     app = create_app()
     with TestClient(app=app) as client:
         resp = client.post(
-            "/pipeline?formats=text&return_summary_raw=true",
+            "/v1/pipeline?formats=text&return_summary_raw=true",
             files={"audio_file": ("a.wav", b"123", "audio/wav")},
         )
         assert resp.status_code == 200 or resp.status_code == 201

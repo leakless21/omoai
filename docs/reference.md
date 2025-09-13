@@ -32,16 +32,6 @@ The API uses a robust, script-based pipeline for all stages:
 - ASR via the `scripts.asr` module
 - Postprocess via the `scripts.post` module
 
-API Persistence
-- Controlled by `output.save_on_api` (default false). When true, the API saves artifacts per request under `output.api_output_dir` (default: `paths.out_dir/api`).
-- Files written are controlled by `output.save_formats_on_api` (choose any subset):
-  - `final_json`: writes the full final JSON (includes `quality_metrics`/`diffs` when present)
-  - `segments`: writes `segments.json`
-  - `transcripts`: writes `transcript.raw.txt` and `transcript.punct.txt`
-  - `srt`: writes `transcript.srt` using `output.transcript.file_srt`
-  - `vtt`: writes `transcript.vtt` using `output.transcript.file_vtt`
-  - `md`: writes `summary.md` (using `output.summary.file`) and `transcript.md`
-
 Request Timeouts
 - Configure max request duration via `api.request_timeout_seconds`. Requests exceeding this limit are aborted by a timeout middleware.
 
@@ -81,7 +71,7 @@ https://api.yourdomain.com  # Production deployment
 
 ### Pipeline Endpoint
 
-**POST** `/pipeline`
+**POST** `/v1/pipeline`
 
 Execute the complete audio processing pipeline in a single request.
 
@@ -109,7 +99,7 @@ Execute the complete audio processing pipeline in a single request.
 #### Example Request
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?summary=both&include=segments" \
+curl -X POST "http://localhost:8000/v1/pipeline?summary=both&include=segments" \
   -F "audio_file=@/path/to/audio.mp3" \
   -H "Accept: application/json"
 ```
@@ -197,7 +187,7 @@ See the [Pipeline Endpoint Guide](./pipeline_endpoint.md) for detailed examples 
 
 ### Preprocess Endpoint
 
-**POST** `/preprocess`
+**POST** `/v1/preprocess`
 
 Preprocess an audio file for ASR processing.
 
@@ -211,7 +201,7 @@ Preprocess an audio file for ASR processing.
 #### Preprocess Example Request
 
 ```bash
-curl -X POST "http://localhost:8000/preprocess" \
+curl -X POST "http://localhost:8000/v1/preprocess" \
   -F "audio_file=@/path/to/audio.mp3" \
   -H "Accept: application/json"
 ```
@@ -226,7 +216,7 @@ curl -X POST "http://localhost:8000/preprocess" \
 
 ### ASR Endpoint
 
-**POST** `/asr`
+**POST** `/v1/asr`
 
 Perform automatic speech recognition on a preprocessed audio file.
 
@@ -240,7 +230,7 @@ Perform automatic speech recognition on a preprocessed audio file.
 #### ASR Example Request
 
 ```bash
-curl -X POST "http://localhost:8000/asr" \
+curl -X POST "http://localhost:8000/v1/asr" \
   -H "Content-Type: application/json" \
   -d '{"preprocessed_path": "/tmp/preprocessed_audio.wav"}'
 ```
@@ -265,7 +255,7 @@ The response now includes the raw transcription by default.
 
 ### Postprocess Endpoint
 
-**POST** `/postprocess`
+**POST** `/v1/postprocess`
 
 Apply post-processing to ASR output including punctuation and summarization.
 
@@ -280,7 +270,7 @@ Apply post-processing to ASR output including punctuation and summarization.
 #### Postprocess Example Request
 
 ```bash
-curl -X POST "http://localhost:8000/postprocess?summary=both" \
+curl -X POST "http://localhost:8000/v1/postprocess?summary=both" \
   -H "Content-Type: application/json" \
   -d '{"asr_output": {"segments": [...]}}'
 ```
@@ -342,14 +332,14 @@ curl -X POST "http://localhost:8000/postprocess?summary=both" \
 
 ### Health Check Endpoint
 
-**GET** `/health`
+**GET** `/v1/health`
 
 Check the health status of the API and its dependencies.
 
 #### Health Check Example Request
 
 ```bash
-curl -X GET "http://localhost:8000/health"
+curl -X GET "http://localhost:8000/v1/health"
 ```
 
 #### Health Check Response
@@ -369,6 +359,41 @@ curl -X GET "http://localhost:8000/health"
   }
 }
 ```
+
+### Async Jobs Endpoint
+
+**GET** `/v1/jobs/{job_id}`
+
+Check the status and result of an async processing job.
+
+#### Async Jobs Example Request
+
+```bash
+curl -X GET "http://localhost:8000/v1/jobs/a1b2c3d4-e5f6-7890-1234-567890abcdef"
+```
+
+#### Async Jobs Response
+
+```json
+{
+  "job_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+  "status": "completed",
+  "progress": 100.0,
+  "result": {
+    "summary": {
+      "bullets": ["Key point 1", "Key point 2"],
+      "abstract": "Abstract summary"
+    },
+    "transcript_punct": "Punctuated transcript text"
+  },
+  "errors": [],
+  "submitted_at": "2024-09-13T10:30:00Z",
+  "started_at": "2024-09-13T10:30:05Z",
+  "completed_at": "2024-09-13T10:35:22Z"
+}
+```
+
+Status values: `queued`, `running`, `completed`, `failed`
 
 ## Response Formats
 
@@ -393,9 +418,9 @@ Plain text response suitable for simple integration:
 ```text
 The punctuated transcript text.
 
-# Summary Points
-- First key point
-- Second key point
+# Summary Bullets
+- First key bullet
+- Second key bullet
 
 # Abstract
 The abstract summary text.
@@ -467,16 +492,28 @@ The API uses standard HTTP status codes and provides detailed error information:
 
 ### Error Response Format
 
+All error responses follow a structured format with request IDs for correlation:
+
 ```json
 {
-  "status_code": 422,
-  "detail": "Validation error: audio_file is required",
-  "extra": {
+  "code": "validation_error",
+  "message": "Validation error: audio_file is required",
+  "trace_id": "req-1234567890",
+  "details": {
     "field": "audio_file",
-    "error": "required"
+    "error": "required",
+    "path": "/v1/pipeline",
+    "method": "POST"
   }
 }
 ```
+
+Common error codes:
+- `validation_error`: Invalid input parameters
+- `audio_processing_error`: Audio processing failure
+- `internal_error`: Unexpected server error
+- `timeout_error`: Request timeout
+- `file_too_large`: File exceeds size limit
 
 ## Rate Limiting
 
@@ -535,7 +572,7 @@ The endpoint is highly configurable through query parameters, allowing you to co
 ### Basic Request
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline" \
+curl -X POST "http://localhost:8000/v1/pipeline" \
   -F "audio_file=@/path/to/audio.mp3" \
   -H "Accept: application/json"
 ```
@@ -543,7 +580,7 @@ curl -X POST "http://localhost:8000/pipeline" \
 ### Request with Query Parameters
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?summary=both&include=segments&ts=ms" \
+curl -X POST "http://localhost:8000/v1/pipeline?summary=both&include=segments&ts=ms" \
   -F "audio_file=@/path/to/audio.mp3" \
   -H "Accept: application/json"
 ```
@@ -605,7 +642,7 @@ When no query parameters are provided, the endpoint returns a minimal response w
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline" \
+curl -X POST "http://localhost:8000/v1/pipeline" \
   -F "audio_file=@podcast.mp3" \
   -H "Accept: application/json"
 ```
@@ -644,7 +681,7 @@ And here's an example with the string format:
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?include=segments" \
+curl -X POST "http://localhost:8000/v1/pipeline?include=segments" \
   -F "audio_file=@interview.mp3" \
   -H "Accept: application/json"
 ```
@@ -691,7 +728,7 @@ curl -X POST "http://localhost:8000/pipeline?include=segments" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?summary=bullets&summary_bullets_max=5" \
+curl -X POST "http://localhost:8000/v1/pipeline?summary=bullets&summary_bullets_max=5" \
   -F "audio_file=@lecture.mp3" \
   -H "Accept: application/json"
 ```
@@ -714,7 +751,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=bullets&summary_bullets_max
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline" \
+curl -X POST "http://localhost:8000/v1/pipeline" \
   -F "audio_file=@presentation.mp3" \
   -H "Accept: application/json"
 ```
@@ -741,7 +778,7 @@ curl -X POST "http://localhost:8000/pipeline" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?summary=abstract" \
+curl -X POST "http://localhost:8000/v1/pipeline?summary=abstract" \
   -F "audio_file=@presentation.mp3" \
   -H "Accept: application/json"
 ```
@@ -763,7 +800,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=abstract" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?summary=none" \
+curl -X POST "http://localhost:8000/v1/pipeline?summary=none" \
   -F "audio_file=@recording.mp3" \
   -H "Accept: application/json"
 ```
@@ -783,7 +820,7 @@ curl -X POST "http://localhost:8000/pipeline?summary=none" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?formats=text" \
+curl -X POST "http://localhost:8000/v1/pipeline?formats=text" \
   -F "audio_file=@meeting.mp3" \
   -H "Accept: text/plain"
 ```
@@ -793,7 +830,7 @@ curl -X POST "http://localhost:8000/pipeline?formats=text" \
 ```text
 The quarterly review meeting covered several key topics. Financial performance exceeded expectations with a 15% growth in revenue. The marketing team presented their new campaign strategy. HR announced upcoming changes to remote work policies.
 
-# Summary Points
+# Summary Bullets
 - Financial performance showed 15% revenue growth
 - New marketing campaign strategy was presented
 - HR announced remote work policy changes
@@ -808,7 +845,7 @@ The quarterly review meeting highlighted strong financial performance with 15% r
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?formats=srt&include=segments&ts=ms" \
+curl -X POST "http://localhost:8000/v1/pipeline?formats=srt&include=segments&ts=ms" \
   -F "audio_file=@video.mp3" \
   -H "Accept: text/plain"
 ```
@@ -834,7 +871,7 @@ Let's start with the basic concepts of artificial neurons.
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?formats=vtt&include=segments&ts=ms" \
+curl -X POST "http://localhost:8000/v1/pipeline?formats=vtt&include=segments&ts=ms" \
   -F "audio_file=@webinar.mp3" \
   -H "Accept: text/plain"
 ```
@@ -859,7 +896,7 @@ Let's start with the basic concepts of artificial neurons.
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?formats=md&include=segments&ts=clock" \
+curl -X POST "http://localhost:8000/v1/pipeline?formats=md&include=segments&ts=clock" \
   -F "audio_file=@conference.mp3" \
   -H "Accept: text/plain"
 ```
@@ -893,7 +930,7 @@ We have speakers from leading tech companies around the world.
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?include_quality_metrics=true" \
+curl -X POST "http://localhost:8000/v1/pipeline?include_quality_metrics=true" \
   -F "audio_file=@analysis.mp3" \
   -H "Accept: application/json"
 ```
@@ -928,7 +965,7 @@ curl -X POST "http://localhost:8000/pipeline?include_quality_metrics=true" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?include_quality_metrics=true&include_diffs=true" \
+curl -X POST "http://localhost:8000/v1/pipeline?include_quality_metrics=true&include_diffs=true" \
   -F "audio_file=@research.mp3" \
   -H "Accept: application/json"
 ```
@@ -969,7 +1006,7 @@ curl -X POST "http://localhost:8000/pipeline?include_quality_metrics=true&includ
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?formats=json,srt,vtt&include=segments&ts=ms" \
+curl -X POST "http://localhost:8000/v1/pipeline?formats=json,srt,vtt&include=segments&ts=ms" \
   -F "audio_file=@multimedia.mp3" \
   -H "Accept: application/json"
 ```
@@ -1015,7 +1052,7 @@ curl -X POST "http://localhost:8000/pipeline?formats=json,srt,vtt&include=segmen
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?summary_lang=en" \
+curl -X POST "http://localhost:8000/v1/pipeline?summary_lang=en" \
   -F "audio_file=@vietnamese_audio.mp3" \
   -H "Accept: application/json"
 ```
@@ -1042,7 +1079,7 @@ curl -X POST "http://localhost:8000/pipeline?summary_lang=en" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline?include=segments&ts=clock" \
+curl -X POST "http://localhost:8000/v1/pipeline?include=segments&ts=clock" \
   -F "audio_file=@long_form.mp3" \
   -H "Accept: application/json"
 ```
@@ -1084,7 +1121,7 @@ curl -X POST "http://localhost:8000/pipeline?include=segments&ts=clock" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline" \
+curl -X POST "http://localhost:8000/v1/pipeline" \
   -F "audio_file=@invalid_file.txt" \
   -H "Accept: application/json"
 ```
@@ -1107,7 +1144,7 @@ curl -X POST "http://localhost:8000/pipeline" \
 **Request:**
 
 ```bash
-curl -X POST "http://localhost:8000/pipeline" \
+curl -X POST "http://localhost:8000/v1/pipeline" \
   -F "audio_file=@huge_file.mp3" \
   -H "Accept: application/json"
 ```

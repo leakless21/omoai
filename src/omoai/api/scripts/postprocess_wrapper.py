@@ -16,6 +16,7 @@ def run_postprocess_script(
     asr_json_path: str | Path,
     output_path: str | Path,
     config_path: str | Path | None = None,
+    timeout_seconds: float | None = None,
 ) -> None:
     """
     Invoke the top-level postprocess script as a module with cwd set to project root.
@@ -67,7 +68,12 @@ def run_postprocess_script(
     )
 
     result = subprocess.run(
-        cmd, cwd=project_root, capture_output=True, text=True, env=env
+        cmd,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
     )
     if result.returncode != 0:
         raise RuntimeError(

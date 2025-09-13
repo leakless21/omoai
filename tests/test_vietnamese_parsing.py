@@ -32,8 +32,8 @@ Tóm tắt: Bài giảng trình bày cách tính tích phân đường loại m�
             result["title"] == "Giải thích và phương pháp tính tích phân đường loại một"
         )
         assert "Bài giảng trình bày cách tính tích phân" in result["abstract"]
-        assert len(result["points"]) == 3
-        assert "Cách xác định loại đường cong" in result["points"][0]
+        assert len(result["bullets"]) == 3
+        assert "Cách xác định loại đường cong" in result["bullets"][0]
 
     def test_english_labeled_text(self):
         """Test parsing of English-labeled text."""
@@ -52,7 +52,7 @@ Main Points:
             == "Line Integral Type One - Calculation Methods and Examples"
         )
         assert "This lecture explains how to calculate" in result["abstract"]
-        assert len(result["points"]) == 3
+        assert len(result["bullets"]) == 3
 
     def test_mixed_vietnamese_english(self):
         """Test parsing of mixed Vietnamese and English labels."""
@@ -68,7 +68,7 @@ Summary: Hướng dẫn chi tiết cách giải các bài toán tích phân đư
         assert result is not None, "Should successfully parse mixed text"
         assert result["title"] == "Hướng dẫn giải bài toán tích phân"
         assert "Hướng dẫn chi tiết cách giải" in result["abstract"]
-        assert len(result["points"]) == 3
+        assert len(result["bullets"]) == 3
 
     def test_text_without_labels(self):
         """Test that text without labels returns None."""
@@ -93,7 +93,7 @@ Summary: Hướng dẫn chi tiết cách giải các bài toán tích phân đư
         assert result is not None, "Should parse title-only text"
         assert result["title"] == "Just a title"
         assert result["abstract"] == ""
-        assert result["points"] == []
+        assert result["bullets"] == []
 
     def test_unicode_normalization(self):
         """Test that Unicode normalization works correctly."""
@@ -119,7 +119,7 @@ TÓM TẮT: Upper Case Abstract
         assert result is not None, "Should handle case insensitive matching"
         assert result["title"] == "Upper Case Title"
         assert result["abstract"] == "Upper Case Abstract"
-        assert len(result["points"]) == 2
+        assert len(result["bullets"]) == 2
 
     def test_whitespace_handling(self):
         """Test that various whitespace patterns are handled correctly."""
@@ -134,9 +134,9 @@ Tóm tắt:    Abstract with spaces
         assert result is not None, "Should handle whitespace correctly"
         assert result["title"] == "Title with spaces"
         assert result["abstract"] == "Abstract with spaces"
-        assert len(result["points"]) == 2
-        assert result["points"][0] == "Point with spaces"
-        assert result["points"][1] == "Another point"
+        assert len(result["bullets"]) == 2
+        assert result["bullets"][0] == "Point with spaces"
+        assert result["bullets"][1] == "Another point"
 
 
 if __name__ == "__main__":

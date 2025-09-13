@@ -249,7 +249,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
 
         # Now test ASR endpoint
         asr_request = {"preprocessed_path": preprocessed_path}
-        response = self.client.post("/asr", json=asr_request)
+        response = self.client.post("/v1/asr", json=asr_request)
 
         # Verify response
         self.assertIn(response.status_code, (200, 201))
@@ -295,7 +295,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
 
         # Make request - wrap ASR output in PostprocessRequest format
         postprocess_request = {"asr_output": asr_output}
-        response = self.client.post("/postprocess", json=postprocess_request)
+        response = self.client.post("/v1/postprocess", json=postprocess_request)
 
         # Verify response
         self.assertEqual(response.status_code, 201)
@@ -388,11 +388,6 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
                             "Đây là bài kiểm tra",
                             "Chúc bạn một ngày tốt lành",
                         ],
-                        "points": [
-                            "Xin chào thế giới",
-                            "Đây là bài kiểm tra",
-                            "Chúc bạn một ngày tốt lành",
-                        ],
                         "abstract": "Một đoạn văn bản tiếng Việt với lời chào và bài kiểm tra.",
                     },
                     segments=[
@@ -418,7 +413,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         filename = "testaudio.mp3" if (self.mp3_audio_path is not None) else "test.wav"
         with _patch.object(services, "_run_full_pipeline_script", new=fake_runner):
             response = self.client.post(
-                "/pipeline", files={"audio_file": (filename, audio_content, mime)}
+                "/v1/pipeline", files={"audio_file": (filename, audio_content, mime)}
             )
 
         # Verify response
@@ -426,8 +421,8 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
         data = response.json()
         self.assertIn("summary", data)
         self.assertIn("segments", data)
-        # API now uses 'points' instead of 'bullets'
-        self.assertIn("points", data["summary"])
+        # API uses 'bullets' for summary points
+        self.assertIn("bullets", data["summary"])
         self.assertIn("abstract", data["summary"])
 
         # Verify all mocks were called
@@ -493,7 +488,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
 
         # Make request with output parameters
         response = self.client.post(
-            "/pipeline?summary=bullets&summary_bullets_max=3&include=segments",
+            "/v1/pipeline?summary=bullets&summary_bullets_max=3&include=segments",
             files={"audio_file": ("test.wav", audio_content, "audio/wav")},
         )
 
@@ -521,7 +516,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
 
         # Make request
         response = self.client.post(
-            "/preprocess",
+            "/v1/preprocess",
             files={"audio_file": ("vietnamese.wav", audio_content, "audio/wav")},
         )
 
@@ -540,7 +535,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
 
         # Make request
         response = self.client.post(
-            "/preprocess",
+            "/v1/preprocess",
             files={"audio_file": ("invalid.txt", invalid_audio, "text/plain")},
         )
 
@@ -551,7 +546,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
     def test_error_handling_missing_audio_file(self):
         """Test error handling for missing audio file."""
         # Make request without audio file
-        response = self.client.post("/preprocess")
+        response = self.client.post("/v1/preprocess")
 
         # Should return an error
         self.assertIn(response.status_code, [400, 422])
@@ -568,7 +563,7 @@ class TestAPIIntegrationWithRealAudio(unittest.TestCase):
 
         # Make request
         response = self.client.post(
-            "/preprocess",
+            "/v1/preprocess",
             files={"audio_file": ("test.wav", audio_content, "audio/wav")},
         )
 

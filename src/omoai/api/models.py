@@ -70,11 +70,12 @@ class HumanReadableDiff(BaseModel):
 
 
 class PipelineResponse(BaseModel):
-    # Summary is now a structured dict with the shape:
+    # Summary is a structured dict with the shape:
     # {
     #   "title": str,
-    #   "summary": str,    # abstract / main paragraph
-    #   "points": List[str]    # bullet points
+    #   "summary": str,     # alias of abstract for compatibility
+    #   "abstract": str,
+    #   "bullets": List[str]
     # }
     summary: dict
     segments: list

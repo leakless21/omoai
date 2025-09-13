@@ -8,7 +8,7 @@ A production-ready pipeline to transcribe and summarize long-form audio (e.g., p
 - **Long-audio support**: Chunked decoding for multi-hour recordings.
 - **Enhanced Punctuation & capitalization**: Advanced LLM-based punctuation with character-level alignment and quality metrics.
 - **Quality Assessment**: Comprehensive metrics including WER, CER, PER, U-WER, and F-WER for evaluating punctuation accuracy.
-- **Summarization**: Bullet points and abstract (single-pass or map-reduce for long texts).
+- **Summarization**: Bullets and abstract (single-pass or map-reduce for long texts).
 - **Config-driven**: Single `config.yaml` controls paths, ASR, LLM, API, and outputs.
 - **Outputs**: Always writes `final.json`; optionally writes transcript and summary text files when enabled in config.
 - **CLI & REST API**: Run locally or as a web service.
@@ -202,41 +202,78 @@ uv run litestar --app omoai.api.app:app run --host 0.0.0.0 --port 8000
 
 Endpoints:
 
-- `POST /pipeline` (multipart form): run full pipeline.
-- `POST /preprocess` (multipart form): preprocess only.
-- `POST /asr` (JSON): run ASR on a local preprocessed path.
-- `POST /postprocess` (JSON): run punctuation+summary on provided ASR output.
-- `GET /health`: health check (ffmpeg, config, scripts).
+- `POST /v1/pipeline` (multipart form): run full pipeline.
+- `POST /v1/preprocess` (multipart form): preprocess only.
+- `POST /v1/asr` (JSON): run ASR on a local preprocessed path.
+- `POST /v1/postprocess` (JSON): run punctuation+summary on provided ASR output.
+- `GET /v1/health`: health check (ffmpeg, config, scripts).
+- `GET /v1/metrics`: get system metrics.
 
 Examples:
 
 ```bash
 # Full pipeline (default plain text response with transcript + summary)
-curl -X POST 'http://localhost:8000/pipeline' \
+curl -X POST 'http://localhost:8000/v1/pipeline' \
   -F 'audio_file=@data/input/audio.mp3'
 
 # Structured JSON with options
-curl -X POST 'http://localhost:8000/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \
+curl -X POST 'http://localhost:8000/v1/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \
   -F 'audio_file=@data/input/audio.mp3'
 
 # Include raw LLM summary in JSON
-curl -X POST 'http://localhost:8000/pipeline?return_summary_raw=true' \
+curl -X POST 'http://localhost:8000/v1/pipeline?return_summary_raw=true' \
   -F 'audio_file=@data/input/audio.mp3'
 
 # Return only raw LLM summary as text
-curl -X POST 'http://localhost:8000/pipeline?formats=text&return_summary_raw=true' \
+curl -X POST 'http://localhost:8000/v1/pipeline?formats=text&return_summary_raw=true' \
   -F 'audio_file=@data/input/audio.mp3'
 
 # Health
-curl 'http://localhost:8000/health'
+curl 'http://localhost:8000/v1/health'
 ```
 
 Notes:
 
-- When no query params are provided to `/pipeline`, the server returns `text/plain` containing the punctuated transcript and summary for convenience.
+- When no query params are provided to `/v1/pipeline`, the server returns `text/plain` containing the punctuated transcript and summary for convenience.
 - With query params, the server returns structured JSON (`PipelineResponse`).
 - When `return_summary_raw=true` is provided, responses include `summary_raw_text` (JSON) or return the raw summary in text mode.
-- The `/health` endpoint checks `ffmpeg`, configuration file availability, and the presence of script modules/wrappers used by the pipeline.
+- The `/v1/health` endpoint checks `ffmpeg`, configuration file availability, and the presence of script modules/wrappers used by the pipeline.
+- The `/v1/metrics` endpoint provides system-wide metrics.
+
+### Async Processing
+
+For long-running tasks, use async processing:
+
+```bash
+# Submit async job
+curl -X POST 'http://localhost:8000/v1/pipeline?async=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+
+# Check job status
+curl 'http://localhost:8000/v1/jobs/{job_id}'
+```
+
+### Advanced Features
+
+- **Request IDs**: All responses include a `trace_id` in the error envelope for correlation
+- **Structured errors**: Error responses follow `{code, message, trace_id, details}` format  
+- **Timeouts**: Configurable request timeout via `api.request_timeout_seconds`
+- **Metrics**: System metrics available at `/v1/metrics`
+- **Temp cleanup**: Request-scoped temp directories with automatic cleanup
+
+### Error Handling Example
+
+```json
+{
+  "code": "audio_processing_error",
+  "message": "Audio processing failed",
+  "trace_id": "req-1234567890",
+  "details": {
+    "path": "/v1/pipeline",
+    "method": "POST"
+  }
+}
+```
 
 ## Outputs
 
@@ -309,7 +346,7 @@ Một pipeline xử lý âm thanh để nhận dạng giọng nói (ASR), chấm
 - **Hỗ trợ audio dài** (hàng giờ) bằng giải mã theo khối.
 - **Chấm câu & viết hoa nâng cao**: Hệ thống chấm câu thông minh với căn chỉnh ký tự và đánh giá chất lượng.
 - **Đánh giá chất lượng**: Các chỉ số toàn diện bao gồm WER, CER, PER, U-WER, và F-WER để đánh giá độ chính xác của dấu câu.
-- **Tóm tắt**: gạch đầu dòng và đoạn tóm tắt (đơn hoặc map-reduce cho văn bản dài).
+- **Tóm tắt**: Bullets và đoạn tóm tắt (đơn hoặc map-reduce cho văn bản dài).
 - **Cấu hình tập trung** trong `config.yaml`.
 - **Đầu ra**: luôn có `final.json`; tùy chọn xuất `transcript.txt`, `summary.txt`. Có thể tạo SRT/VTT/Markdown qua API thư viện.
 - **CLI & REST API**.
@@ -367,20 +404,20 @@ uv run api
 Gửi yêu cầu toàn bộ pipeline:
 
 ```bash
-curl -X POST 'http://localhost:8000/pipeline' -F 'audio_file=@data/input/audio.mp3'
+curl -X POST 'http://localhost:8000/v1/pipeline' -F 'audio_file=@data/input/audio.mp3'
 ```
 
 Trả về mặc định là văn bản (`text/plain`). Để nhận JSON có cấu trúc và điều khiển đầu ra:
 
 ```bash
-curl -X POST 'http://localhost:8000/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \
+curl -X POST 'http://localhost:8000/v1/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \
   -F 'audio_file=@data/input/audio.mp3'
 ```
 
 Sức khỏe hệ thống:
 
 ```bash
-curl 'http://localhost:8000/health'
+curl 'http://localhost:8000/v1/health'
 ```
 
 ### Đầu ra

@@ -12,7 +12,7 @@ from omoai.config.schemas import get_config
 
 
 @get("/health")
-async def health_check() -> Response[dict]:
+async def health_check() -> Response:
     """
     Comprehensive health check endpoint.
 

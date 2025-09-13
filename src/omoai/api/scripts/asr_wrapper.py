@@ -18,6 +18,7 @@ def run_asr_script(
     audio_path: str | Path,
     output_path: str | Path,
     config_path: str | Path | None = None,
+    timeout_seconds: float | None = None,
 ) -> None:
     """
     Invoke the top-level ASR script as a module with cwd set to project root.
@@ -43,7 +44,13 @@ def run_asr_script(
     project_root = Path(__file__).resolve().parents[4]
 
     # Let CalledProcessError propagate to callers for test assertions
-    result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd,
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
+    )
     if result.returncode != 0:
         # Provide detailed error context expected by tests
         message = (

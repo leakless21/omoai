@@ -2,18 +2,22 @@ import logging
 import os
 
 import uvicorn
-from litestar import Litestar
+from litestar import Litestar, Router, get
 from litestar.middleware import DefineMiddleware
 from litestar.exceptions import HTTPException
 from litestar.response import Response
+from litestar.response import Redirect
 
 from omoai.api.asr_controller import ASRController
 from omoai.api.exceptions import AudioProcessingException
 from omoai.api.health import health_check
 from omoai.api.main_controller import MainController
 from omoai.api.postprocess_controller import PostprocessController
+from omoai.api.jobs import JobsController
 from omoai.api.preprocess_controller import PreprocessController
 from omoai.api.timeout_middleware import RequestTimeoutMiddleware
+from omoai.api.request_id_middleware import RequestIDMiddleware
+from omoai.api.metrics_middleware import MetricsMiddleware, metrics_endpoint
 from omoai.config.schemas import get_config
 from omoai.logging_system.logger import setup_logging
 
@@ -28,6 +32,19 @@ def global_exception_handler(request, exc):
     )
     method = getattr(request, "method", "")
 
+    # Request/trace ID from middleware
+    trace_id = getattr(getattr(request, "state", None), "request_id", None) or ""
+
+    def envelope(code: str, message: str, status_code: int, details: dict | None = None):
+        payload = {
+            "code": code,
+            "message": message,
+            "trace_id": trace_id,
+        }
+        if details:
+            payload["details"] = details
+        return Response(content=payload, status_code=status_code)
+
     if isinstance(exc, AudioProcessingException):
         logger.error(
             "Audio processing error",
@@ -38,11 +55,14 @@ def global_exception_handler(request, exc):
                 "detail": str(exc),
                 "path": req_path,
                 "method": method,
+                "trace_id": trace_id,
             },
         )
-        return Response(
-            content={"error": str(exc), "type": "AudioProcessingException"},
-            status_code=exc.status_code,
+        return envelope(
+            code="audio_processing_error",
+            message=str(exc),
+            status_code=getattr(exc, "status_code", 500),
+            details={"path": req_path, "method": method},
         )
     elif isinstance(exc, HTTPException):
         logger.error(
@@ -54,11 +74,14 @@ def global_exception_handler(request, exc):
                 "detail": str(exc),
                 "path": req_path,
                 "method": method,
+                "trace_id": trace_id,
             },
         )
-        return Response(
-            content={"error": str(exc), "type": "HTTPException"},
-            status_code=exc.status_code,
+        return envelope(
+            code="http_error",
+            message=str(exc),
+            status_code=getattr(exc, "status_code", 500),
+            details={"path": req_path, "method": method},
         )
     else:
         logger.exception(
@@ -67,12 +90,21 @@ def global_exception_handler(request, exc):
                 "type": type(exc).__name__,
                 "path": req_path,
                 "method": method,
+                "trace_id": trace_id,
             },
         )
-        return Response(
-            content={"error": "Internal server error", "type": "InternalServerError"},
+        return envelope(
+            code="internal_error",
+            message="Internal server error",
             status_code=500,
+            details={"path": req_path, "method": method},
         )
+
+
+@get(path="/")
+def root_redirect() -> Redirect:
+    """Root endpoint that redirects to the OpenAPI schema documentation."""
+    return Redirect(path="/schema")
 
 
 def create_app() -> Litestar:
@@ -84,19 +116,28 @@ def create_app() -> Litestar:
     # Configure request timeout middleware from config
     timeout_seconds = float(config.api.request_timeout_seconds)
 
-    return Litestar(
+    api_router = Router(
+        path="/v1",
         route_handlers=[
             MainController,
             PreprocessController,
             ASRController,
             PostprocessController,
+            JobsController,
             health_check,
+            metrics_endpoint,
         ],
+    )
+
+    return Litestar(
+        route_handlers=[root_redirect, api_router],
         on_startup=[],
         # Use unified stdlib logging configured by setup_logging()
         logging_config=None,
         middleware=[
-            DefineMiddleware(RequestTimeoutMiddleware, timeout_seconds=timeout_seconds)
+            DefineMiddleware(RequestIDMiddleware),
+            DefineMiddleware(MetricsMiddleware),
+            DefineMiddleware(RequestTimeoutMiddleware, timeout_seconds=timeout_seconds),
         ],
         request_max_body_size=config.api.max_body_size_mb
         * 1024

@@ -28,9 +28,8 @@ def test_benchmark_pipeline(audio_file):
 
     with open(audio_file, "rb") as f:
         files = {"audio_file": (os.path.basename(audio_file), f, "audio/mpeg")}
-
         start_time = time.time()
-        response = client.post("/pipeline", files=files)
+        response = client.post("/v1/pipeline", files=files)
         total_time = time.time() - start_time
 
     # Debug: Print response details if there's an error
