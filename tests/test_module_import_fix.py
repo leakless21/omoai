@@ -56,6 +56,9 @@ class TestModuleImportFix:
         assert captured_cmd[0] == sys.executable
         assert captured_cmd[1] == "-m"
         assert "scripts.asr" in captured_cmd
+        # Ensure config flag propagated
+        assert "--config" in captured_cmd
+        assert str(config_file) in captured_cmd
     
     def test_postprocess_script_module_import_fix(self, tmp_path, monkeypatch):
         """Test that postprocess script can be executed with proper working directory."""

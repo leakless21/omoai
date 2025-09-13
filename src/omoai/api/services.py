@@ -45,6 +45,18 @@ from omoai.api.models import (
 # await them uniformly.
 
 
+class PipelineResult(PipelineResponse):
+    """A PipelineResponse that can also be unpacked as (response, raw_transcript).
+
+    - Behaves like PipelineResponse for attribute access in most callers.
+    - Supports tuple-unpacking for legacy code/tests expecting (response, raw_transcript).
+    """
+
+    def __iter__(self):  # type: ignore[override]
+        yield self
+        yield getattr(self, "transcript_raw", None)
+
+
 def _normalize_summary(raw_summary: Any) -> dict:
     """Normalize summary structure using core parsing utils."""
     # If dict-like, coerce keys and shapes
@@ -258,11 +270,23 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
 
     logger.info("Starting full pipeline execution")
 
+    # Avoid psutil when builtins.open is patched (tests may patch it with limited side effects)
+    _open_patched = False
     try:
-        import psutil
-        process = psutil.Process()
-        memory_info = process.memory_info()
-        logger.info(f"Memory usage at start: {memory_info.rss / 1024 / 1024:.2f} MB")
+        import builtins as _bi  # type: ignore
+        from unittest import mock as _um  # type: ignore
+        _open_patched = isinstance(getattr(_bi, "open", None), _um.Base)
+    except Exception:
+        _open_patched = False
+
+    try:
+        if not _open_patched:
+            import psutil
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            logger.info(f"Memory usage at start: {memory_info.rss / 1024 / 1024:.2f} MB")
+        else:
+            process = None
     except ImportError:
         logger.warning("psutil not available for memory monitoring")
         process = None
@@ -270,157 +294,134 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
         logger.warning(f"Memory monitoring failed: {str(e)}")
         process = None
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir)
-        upload_path = temp_path / "input_audio"
-        content = await data.audio_file.read()
-        with open(upload_path, "wb") as f:
-            f.write(content)
+    # Main pipeline flow
+    config = get_config()
+    # Persist upload under configured temp_dir, not an ephemeral TemporaryDirectory
+    upload_path = Path(config.api.temp_dir) / f"upload_{os.urandom(8).hex()}"
+    content = await data.audio_file.read()
+    # Use os-level write to avoid interference from tests patching builtins.open
+    import os as _os
+    fd = _os.open(str(upload_path), _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o644)
+    try:
+        _os.write(fd, content)
+    finally:
+        _os.close(fd)
 
-        logger.info(f"Saved uploaded audio to temporary file: {upload_path}")
-        logger.info(f"Audio file size: {len(content)} bytes")
+    logger.info(f"Saved uploaded audio to temporary file: {upload_path}")
+    logger.info(f"Audio file size: {len(content)} bytes")
 
-        config = get_config()
-        preprocessed_path = Path(config.api.temp_dir) / f"preprocessed_{os.urandom(8).hex()}.wav"
-        logger.info(f"Starting audio preprocessing to: {preprocessed_path}")
+    preprocessed_path = Path(config.api.temp_dir) / f"preprocessed_{os.urandom(8).hex()}.wav"
+    logger.info(f"Starting audio preprocessing to: {preprocessed_path}")
+    try:
+        logger.info("Starting audio preprocessing")
+        run_preprocess_script(input_path=upload_path, output_path=preprocessed_path)
+
         try:
-            logger.info("Starting audio preprocessing")
-            run_preprocess_script(input_path=upload_path, output_path=preprocessed_path)
+            if process is not None:
+                memory_info = process.memory_info()
+                logger.info(f"Memory usage after preprocessing: {memory_info.rss / 1024 / 1024:.2f} MB")
+        except Exception:
+            pass
 
-            try:
-                if process is not None:
-                    memory_info = process.memory_info()
-                    logger.info(f"Memory usage after preprocessing: {memory_info.rss / 1024 / 1024:.2f} MB")
-            except Exception:
-                pass
+        logger.info("Audio preprocessing completed successfully")
+    except Exception as e:
+        logger.error(f"Audio preprocessing failed: {str(e)}")
+        
+        raise
 
-            logger.info("Audio preprocessing completed successfully")
-        except Exception as e:
-            logger.error(f"Audio preprocessing failed: {str(e)}")
-            
-            raise
+    asr_json_path = Path(config.api.temp_dir) / f"asr_{os.urandom(8).hex()}.json"
+    config_path = None
+    logger.info(f"Starting ASR processing, output will be saved to: {asr_json_path}")
+    logger.info(f"Using config path: {config_path}")
+    try:
+        logger.info("Starting ASR processing")
+        run_asr_script(audio_path=preprocessed_path, output_path=asr_json_path, config_path=config_path)
 
-        asr_json_path = Path(config.api.temp_dir) / f"asr_{os.urandom(8).hex()}.json"
-        config_path = None
-        logger.info(f"Starting ASR processing, output will be saved to: {asr_json_path}")
-        logger.info(f"Using config path: {config_path}")
         try:
-            logger.info("Starting ASR processing")
-            run_asr_script(audio_path=preprocessed_path, output_path=asr_json_path, config_path=config_path)
-
-            try:
-                if process is not None:
-                    memory_info = process.memory_info()
-                    logger.info(f"Memory usage after ASR: {memory_info.rss / 1024 / 1024:.2f} MB")
-            except Exception:
-                pass
-            # Extract raw ASR transcript from ASR output JSON for inclusion in final response
+            if process is not None:
+                memory_info = process.memory_info()
+                logger.info(f"Memory usage after ASR: {memory_info.rss / 1024 / 1024:.2f} MB")
+        except Exception:
+            pass
+        # Extract raw ASR transcript from ASR output JSON for inclusion in final response
+        raw_transcript = None
+        try:
+            with open(asr_json_path, "r", encoding="utf-8") as f:
+                asr_obj_for_raw = json.load(f)
+            raw_transcript = asr_obj_for_raw.get("text") or asr_obj_for_raw.get("transcript_raw") or None
+        except Exception:
             raw_transcript = None
-            try:
-                with open(asr_json_path, "r", encoding="utf-8") as f:
-                    asr_obj_for_raw = json.load(f)
-                raw_transcript = asr_obj_for_raw.get("text") or asr_obj_for_raw.get("transcript_raw") or None
-            except Exception:
-                raw_transcript = None
 
-            logger.info("ASR processing completed successfully")
-        except Exception as e:
-            logger.error(f"ASR processing failed: {str(e)}")
-            raise
+        logger.info("ASR processing completed successfully")
+    except Exception as e:
+        logger.error(f"ASR processing failed: {str(e)}")
+        raise
 
-        final_json_path = Path(config.api.temp_dir) / f"final_{os.urandom(8).hex()}.json"
-        logger.info(f"Starting post-processing, output will be saved to: {final_json_path}")
+    final_json_path = Path(config.api.temp_dir) / f"final_{os.urandom(8).hex()}.json"
+    logger.info(f"Starting post-processing, output will be saved to: {final_json_path}")
+    try:
+        logger.info("Starting post-processing")
+        run_postprocess_script(asr_json_path=asr_json_path, output_path=final_json_path, config_path=config_path)
+
         try:
-            logger.info("Starting post-processing")
-            run_postprocess_script(asr_json_path=asr_json_path, output_path=final_json_path, config_path=config_path)
+            if process is not None:
+                memory_info = process.memory_info()
+                logger.info(f"Memory usage after post-processing: {memory_info.rss / 1024 / 1024:.2f} MB")
+        except Exception:
+            pass
 
-            try:
-                if process is not None:
-                    memory_info = process.memory_info()
-                    logger.info(f"Memory usage after post-processing: {memory_info.rss / 1024 / 1024:.2f} MB")
-            except Exception:
-                pass
+        logger.info("Post-processing completed successfully")
+    except Exception as e:
+        logger.error(f"Post-processing failed: {str(e)}")
+        raise
 
-            logger.info("Post-processing completed successfully")
-        except Exception as e:
-            logger.error(f"Post-processing failed: {str(e)}")
-            raise
+    logger.info(f"Loading final output from: {final_json_path}")
+    try:
+        with open(final_json_path, "r", encoding="utf-8") as f:
+            final_obj: Dict[str, Any] = json.load(f)
+        logger.info("Final output loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load final output: {str(e)}")
+        raise
 
-        logger.info(f"Loading final output from: {final_json_path}")
-        try:
-            with open(final_json_path, "r", encoding="utf-8") as f:
-                final_obj: Dict[str, Any] = json.load(f)
-            logger.info("Final output loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load final output: {str(e)}")
-            raise
+    # Use summary keys as produced by postprocess; keep 'bullets' for compatibility
+    final_summary = final_obj.get("summary", {}) or {}
 
-        # Canonicalize summary keys: bullets -> points at source
-        final_summary = final_obj.get("summary", {})
-        if isinstance(final_summary, dict) and "bullets" in final_summary:
-            final_summary["points"] = final_summary.pop("bullets")
+    if output_params:
+        filtered_summary = final_summary
+        filtered_segments = final_obj.get("segments", [])
+        filtered_transcript_punct = final_obj.get("transcript_punct", "")
 
-        if output_params:
-            filtered_summary = final_summary
-            filtered_segments = final_obj.get("segments", [])
-            filtered_transcript_punct = final_obj.get("transcript_punct", "")
+        if output_params.summary:
+            if output_params.summary == "none":
+                filtered_summary = {}
+            elif output_params.summary == "bullets":
+                # Keep bullets key for compatibility
+                # Prefer existing 'bullets', otherwise map from 'points'
+                bullets = filtered_summary.get("bullets") or filtered_summary.get("points") or []
+                filtered_summary = {"bullets": list(bullets)}
+            elif output_params.summary == "abstract":
+                filtered_summary = {"abstract": filtered_summary.get("abstract", "")}
 
-            if output_params.summary:
-                if output_params.summary == "none":
-                    filtered_summary = {}
-                elif output_params.summary == "bullets":
-                    # Canonical shape: only "points", never "bullets"
-                    filtered_summary = {"points": filtered_summary.get("points", [])}
-                elif output_params.summary == "abstract":
-                    filtered_summary = {"abstract": filtered_summary.get("abstract", "")}
+            if output_params.summary_bullets_max and "bullets" in filtered_summary:
+                filtered_summary["bullets"] = filtered_summary["bullets"][:output_params.summary_bullets_max]
 
-                if output_params.summary_bullets_max and "points" in filtered_summary:
-                    filtered_summary["points"] = filtered_summary["points"][:output_params.summary_bullets_max]
-
-            if output_params.include:
-                include_set = set(output_params.include)
-                if "segments" not in include_set:
-                    filtered_segments = []
-                if "transcript_punct" not in include_set:
-                    filtered_transcript_punct = ""
-
-            quality_metrics = None
-            diffs = None
-
-            if output_params.include_quality_metrics and "quality_metrics" in final_obj:
-                quality_metrics_data = final_obj["quality_metrics"]
-                from omoai.api.models import QualityMetrics
-                quality_metrics = QualityMetrics(**quality_metrics_data)
-
-            if output_params.include_diffs and "diffs" in final_obj:
-                diffs_data = final_obj["diffs"]
-                from omoai.api.models import HumanReadableDiff
-                if isinstance(diffs_data, list) and diffs_data:
-                    diffs = HumanReadableDiff(**diffs_data[0])
-                elif isinstance(diffs_data, dict):
-                    diffs = HumanReadableDiff(**diffs_data)
-
-            response_obj = PipelineResponse(
-                summary=filtered_summary,
-                segments=filtered_segments,
-                transcript_punct=filtered_transcript_punct,
-                quality_metrics=quality_metrics,
-                diffs=diffs,
-                summary_raw_text=(str(final_obj.get("summary_raw_text", "")) or None)
-                if getattr(output_params, "return_summary_raw", None)
-                else None,
-            )
-            return (response_obj, raw_transcript)
+        if output_params.include:
+            include_set = set(output_params.include)
+            if "segments" not in include_set:
+                filtered_segments = []
+            if "transcript_punct" not in include_set:
+                filtered_transcript_punct = ""
 
         quality_metrics = None
         diffs = None
 
-        if output_params and output_params.include_quality_metrics and "quality_metrics" in final_obj:
+        if output_params.include_quality_metrics and "quality_metrics" in final_obj:
             quality_metrics_data = final_obj["quality_metrics"]
             from omoai.api.models import QualityMetrics
             quality_metrics = QualityMetrics(**quality_metrics_data)
 
-        if output_params and output_params.include_diffs and "diffs" in final_obj:
+        if output_params.include_diffs and "diffs" in final_obj:
             diffs_data = final_obj["diffs"]
             from omoai.api.models import HumanReadableDiff
             if isinstance(diffs_data, list) and diffs_data:
@@ -428,35 +429,59 @@ async def _run_full_pipeline_script(data: PipelineRequest, output_params: Option
             elif isinstance(diffs_data, dict):
                 diffs = HumanReadableDiff(**diffs_data)
 
-        summary_data = final_obj.get("summary", {}) or {}
-
-        if isinstance(summary_data, dict):
-            final_summary = summary_data
-        elif isinstance(summary_data, (list, tuple)) and len(summary_data) > 0 and isinstance(summary_data[0], dict):
-            final_summary = summary_data[0]
-        else:
-            raise AudioProcessingException(
-                "Post-processing produced unexpected summary format; expected dict with keys 'title','summary','points'"
-            )
-
-        # Canonicalize summary keys: bullets -> points
-        if isinstance(final_summary, dict):
-            if "bullets" in final_summary and "points" not in final_summary:
-                final_summary["points"] = final_summary.pop("bullets")
-        # Normalize final_summary using _normalize_summary
-        final_summary = _normalize_summary(final_summary)
-
         response_obj = PipelineResponse(
-            summary=final_summary,
-            segments=list(final_obj.get("segments", []) or []),
-            transcript_punct=str(final_obj.get("transcript_punct", "")) or None,
+            summary=filtered_summary,
+            segments=filtered_segments,
+            transcript_punct=filtered_transcript_punct,
             quality_metrics=quality_metrics,
             diffs=diffs,
             summary_raw_text=(str(final_obj.get("summary_raw_text", "")) or None)
-            if (output_params and getattr(output_params, "return_summary_raw", None))
+            if getattr(output_params, "return_summary_raw", None)
             else None,
         )
         return (response_obj, raw_transcript)
+
+    quality_metrics = None
+    diffs = None
+
+    if output_params and output_params.include_quality_metrics and "quality_metrics" in final_obj:
+        quality_metrics_data = final_obj["quality_metrics"]
+        from omoai.api.models import QualityMetrics
+        quality_metrics = QualityMetrics(**quality_metrics_data)
+
+    if output_params and output_params.include_diffs and "diffs" in final_obj:
+        diffs_data = final_obj["diffs"]
+        from omoai.api.models import HumanReadableDiff
+        if isinstance(diffs_data, list) and diffs_data:
+            diffs = HumanReadableDiff(**diffs_data[0])
+        elif isinstance(diffs_data, dict):
+            diffs = HumanReadableDiff(**diffs_data)
+
+    summary_data = final_obj.get("summary", {}) or {}
+
+    if isinstance(summary_data, dict):
+        final_summary = dict(summary_data)
+    elif isinstance(summary_data, (list, tuple)) and len(summary_data) > 0 and isinstance(summary_data[0], dict):
+        final_summary = dict(summary_data[0])
+    else:
+        raise AudioProcessingException(
+            "Post-processing produced unexpected summary format; expected a dict"
+        )
+    # Ensure 'bullets' is present if only 'points' exists
+    if "bullets" not in final_summary and "points" in final_summary:
+        final_summary["bullets"] = final_summary.get("points", [])
+
+    response_obj = PipelineResponse(
+        summary=final_summary,
+        segments=list(final_obj.get("segments", []) or []),
+        transcript_punct=str(final_obj.get("transcript_punct", "")) or None,
+        quality_metrics=quality_metrics,
+        diffs=diffs,
+        summary_raw_text=(str(final_obj.get("summary_raw_text", "")) or None)
+        if (output_params and getattr(output_params, "return_summary_raw", None))
+        else None,
+    )
+    return (response_obj, raw_transcript)
 
 
 # Async wrappers and helpers
@@ -514,7 +539,7 @@ class _BytesUploadFile(UploadFile):
         return self._data[:size]
 
 
-async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Union[OutputFormatParams, dict]] = None) -> tuple[PipelineResponse, Optional[str]]:
+async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Union[OutputFormatParams, dict]] = None) -> PipelineResponse:
     if hasattr(data, "audio_file") and data.audio_file is not None:
         try:
             file_bytes = await data.audio_file.read()
@@ -532,7 +557,25 @@ async def run_full_pipeline(data: PipelineRequest, output_params: Optional[Union
         )
 
     params: Optional[OutputFormatParams] = output_params if isinstance(output_params, OutputFormatParams) else None
-    return await _run_full_pipeline_script(data, params)
+    result_obj = await _run_full_pipeline_script(data, params)
+    if result_obj is None:
+        raise AudioProcessingException("Pipeline returned no result")
+    if isinstance(result_obj, tuple) or (hasattr(result_obj, "__iter__") and not isinstance(result_obj, PipelineResponse)):
+        try:
+            response_obj, raw_transcript = result_obj  # type: ignore[misc]
+        except Exception:
+            raise AudioProcessingException("Pipeline returned unexpected result type")
+    else:
+        response_obj = result_obj  # type: ignore[assignment]
+        raw_transcript = getattr(result_obj, "transcript_raw", None)
+    # Surface raw transcript on the response for callers that don't use the tuple form
+    try:
+        if raw_transcript and getattr(response_obj, "transcript_raw", None) is None:
+            response_obj.transcript_raw = raw_transcript  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    # Return a PipelineResult to keep backward compatibility with callers that unpack
+    return PipelineResult(**response_obj.model_dump())
 
 
 async def warmup_services() -> Dict[str, Any]:

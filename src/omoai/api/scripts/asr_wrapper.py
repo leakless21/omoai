@@ -1,10 +1,16 @@
-"""ASR script wrapper ensuring correct working directory and command structure."""
+"""ASR script wrapper ensuring correct working directory and command structure.
+
+On non‑zero exit codes, raises AudioProcessingException with a detailed message
+including return code, stdout and stderr. This aligns wrapper behavior with
+tests that call the wrapper directly.
+"""
 from __future__ import annotations
 
 import sys
 import subprocess
 from pathlib import Path
 from typing import Optional, Union
+from omoai.api.exceptions import AudioProcessingException
 
 
 def run_asr_script(
@@ -30,7 +36,9 @@ def run_asr_script(
     # Let CalledProcessError propagate to callers for test assertions
     result = subprocess.run(cmd, cwd=project_root, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"ASR script failed with return code {result.returncode}\n"
+        # Provide detailed error context expected by tests
+        message = (
+            f"ASR processing failed with return code {result.returncode}\n"
             f"stdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
+        raise AudioProcessingException(message)

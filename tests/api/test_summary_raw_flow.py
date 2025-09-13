@@ -108,21 +108,24 @@ async def test_pipeline_exposes_transcript_raw():
     Verify that the /pipeline endpoint response includes the transcript_raw field
     when the pipeline service returns a raw transcript.
     """
-    from omoai.api.main_controller import MainController
+    from omoai.api.app import create_app
+    from litestar.testing import TestClient
 
-    # Prepare dummy pipeline result and raw transcript
-    dummy_result = SimpleNamespace(
-        transcript_punct="This is punctuated.",
-        summary={"title": "T", "summary": "A", "points": ["p"]},
-        segments=[],
-        transcript_raw="internal_raw"
-    )
+    # Prepare dummy pipeline result that includes transcript_raw on response
     expected_raw = "dummy raw transcript"
-
     async def fake_run_full_pipeline(data, params):
-        return dummy_result, expected_raw
+        return SimpleNamespace(
+            transcript_punct="This is punctuated.",
+            summary={"title": "T", "summary": "A", "points": ["p"]},
+            segments=[],
+            transcript_raw=expected_raw,
+        )
 
-    # Patch the run_full_pipeline used by the controller
+    # Patch the run_full_pipeline used by the controller and hit the endpoint
     with patch("omoai.api.main_controller.run_full_pipeline", new=fake_run_full_pipeline):
-        response = await MainController().pipeline(data=object())
-        assert getattr(response, "transcript_raw", None) == expected_raw
+        app = create_app()
+        with TestClient(app=app) as client:
+            resp = client.post("/pipeline", files={"audio_file": ("a.wav", b"123", "audio/wav")})
+            assert resp.status_code in (200, 201)
+            data = resp.json()
+            assert data.get("transcript_raw") == expected_raw

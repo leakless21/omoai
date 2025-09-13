@@ -67,24 +67,27 @@ class TestCUDAMultiprocessingFix:
                 assert "Cannot re-initialize CUDA" not in error_msg, f"CUDA re-initialization error detected: {error_msg}"
                 assert "forked subprocess" not in error_msg, f"Fork subprocess error detected: {error_msg}"
     
-    def test_environment_variables_set(self):
-        """Test that CUDA-related environment variables are properly set."""
-        # Check that our fix sets the expected environment variables
-        from omoai.api.scripts.postprocess_wrapper import run_postprocess_script
-        
-        # The wrapper should set these environment variables
-        expected_vars = [
-            "MULTIPROCESSING_START_METHOD",
-            "VLLM_WORKER_MULTIPROC_METHOD", 
-            "TOKENIZERS_PARALLELISM"
-        ]
-        
-        # We'll verify this by checking if the function attempts to set them
-        # (actual testing would require mocking subprocess.run)
-        logger.info(f"Expected environment variables to be set: {expected_vars}")
-        
-        # This test ensures our code changes include the proper environment setup
-        assert True, "Environment variable setup verified in code review"
+    def test_environment_variables_set(self, monkeypatch, tmp_path):
+        """Test that CUDA-related environment variables are properly set and passed to subprocess."""
+        from omoai.api.scripts import postprocess_wrapper as ppw
+
+        captured = {}
+
+        def fake_run(cmd, cwd=None, capture_output=None, text=None, env=None):
+            captured["env"] = env or {}
+            # mimic success
+            completed = subprocess.CompletedProcess(cmd, returncode=0, stdout="ok", stderr="")
+            return completed
+
+        monkeypatch.setattr(ppw.subprocess, "run", fake_run)
+
+        # Call with dummy paths; we only care about env propagation
+        ppw.run_postprocess_script(asr_json_path=str(tmp_path/"in.json"), output_path=str(tmp_path/"out.json"), config_path=None)
+
+        env = captured.get("env", {})
+        assert env.get("MULTIPROCESSING_START_METHOD") == "spawn"
+        assert env.get("VLLM_WORKER_MULTIPROC_METHOD") == "spawn"
+        assert env.get("TOKENIZERS_PARALLELISM") == "false"
     
     def test_vllm_import_isolation(self):
         """Test that vLLM imports are properly isolated in subprocess."""

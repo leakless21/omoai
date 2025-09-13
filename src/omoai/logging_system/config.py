@@ -54,6 +54,31 @@ class LoggingConfig(BaseModel):
     # Environment-based overrides
     debug_mode: bool = Field(default=False, description="Enable debug mode logging")
     quiet_mode: bool = Field(default=False, description="Suppress non-error output")
+
+    # Instance helpers
+    def get_log_level(self) -> int:
+        """Get numeric log level."""
+        if self.debug_mode:
+            return logging.DEBUG
+        if self.quiet_mode:
+            return logging.ERROR
+        return getattr(logging, (self.level or "INFO").upper(), logging.INFO)
+
+    def get_level_name(self) -> str:
+        """Get textual level name suitable for sinks like Loguru."""
+        if self.debug_mode:
+            return "DEBUG"
+        if self.quiet_mode:
+            return "ERROR"
+        return (self.level or "INFO").upper()
+
+    def should_log_performance(self, duration_ms: float) -> bool:
+        """Check if performance should be logged based on threshold."""
+        try:
+            thr = float(self.performance_threshold_ms)
+        except Exception:
+            thr = 100.0
+        return bool(self.enable_performance_logging) and float(duration_ms) >= thr
     
     @classmethod
     def from_environment(cls) -> "LoggingConfig":
@@ -138,27 +163,6 @@ def get_level_name(config: LoggingConfig) -> str:
     if config.quiet_mode:
         return "ERROR"
     return (config.level or "INFO").upper()
-    
-    def get_log_level(self) -> int:
-        """Get numeric log level."""
-        if self.debug_mode:
-            return logging.DEBUG
-        if self.quiet_mode:
-            return logging.ERROR
-        
-        return getattr(logging, self.level.upper(), logging.INFO)
-    
-    def get_level_name(self) -> str:
-        """Get textual level name suitable for sinks like Loguru."""
-        if self.debug_mode:
-            return "DEBUG"
-        if self.quiet_mode:
-            return "ERROR"
-        return (self.level or "INFO").upper()
-    
-    def should_log_performance(self, duration_ms: float) -> bool:
-        """Check if performance should be logged based on threshold."""
-        return self.enable_performance_logging and duration_ms >= self.performance_threshold_ms
 
 
 def get_logging_config() -> LoggingConfig:
@@ -339,4 +343,3 @@ def _configure_third_party_loggers(config: LoggingConfig) -> None:
         
         # Reduce pydantic validation noise in production
         logging.getLogger("pydantic.main").setLevel(logging.WARNING)
-

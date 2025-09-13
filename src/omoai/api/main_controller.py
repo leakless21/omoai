@@ -102,7 +102,7 @@ class MainController(Controller):
         logger.info("Starting pipeline execution with enhanced service")
         
         try:
-            result, raw_transcript = await run_full_pipeline(data, params)
+            result = await run_full_pipeline(data, params)
             logger.info("Pipeline execution completed successfully")
         except Exception as e:
             logger.error(f"Pipeline execution failed with error: {str(e)}")
@@ -156,7 +156,7 @@ class MainController(Controller):
                     summary=summary_data,
                     segments=[],  # Exclude segments by default
                     transcript_punct=result.transcript_punct,
-                    transcript_raw=raw_transcript
+                    transcript_raw=getattr(result, "transcript_raw", None)
                 )
                 logger.info(f"PipelineResponse created successfully: {type(response_obj)}")
                 return response_obj
