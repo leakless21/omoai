@@ -1,6 +1,7 @@
-from pydantic import BaseModel, ConfigDict
+from typing import Literal
+
 from litestar.datastructures import UploadFile
-from typing import List, Optional, Literal
+from pydantic import BaseModel, ConfigDict
 
 
 # Request Models
@@ -27,41 +28,45 @@ class OutputFormatParams(BaseModel):
     """Query parameters for controlling output formats and options."""
 
     # Format selection
-    formats: Optional[List[Literal["json", "text", "srt", "vtt", "md"]]] = None
+    formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None
 
     # Transcript options
-    include: Optional[List[Literal["transcript_raw", "transcript_punct", "segments"]]] = None
-    ts: Optional[Literal["none", "s", "ms", "clock"]] = None
+    include: list[Literal["transcript_raw", "transcript_punct", "segments"]] | None = (
+        None
+    )
+    ts: Literal["none", "s", "ms", "clock"] | None = None
 
     # Summary options
-    summary: Optional[Literal["bullets", "abstract", "both", "none"]] = None
-    summary_bullets_max: Optional[int] = None
-    summary_lang: Optional[str] = None
+    summary: Literal["bullets", "abstract", "both", "none"] | None = None
+    summary_bullets_max: int | None = None
+    summary_lang: str | None = None
 
     # Quality metrics and diff options
-    include_quality_metrics: Optional[bool] = None
-    include_diffs: Optional[bool] = None
+    include_quality_metrics: bool | None = None
+    include_diffs: bool | None = None
     # Simple raw summary option
-    return_summary_raw: Optional[bool] = None
+    return_summary_raw: bool | None = None
 
 
 # Response Models
 class QualityMetrics(BaseModel):
     """Quality metrics for punctuation alignment."""
-    wer: Optional[float] = None
-    cer: Optional[float] = None
-    per: Optional[float] = None
-    uwer: Optional[float] = None
-    fwer: Optional[float] = None
-    alignment_confidence: Optional[float] = None
+
+    wer: float | None = None
+    cer: float | None = None
+    per: float | None = None
+    uwer: float | None = None
+    fwer: float | None = None
+    alignment_confidence: float | None = None
 
 
 class HumanReadableDiff(BaseModel):
     """Human-readable diff for quality assurance."""
-    original_text: Optional[str] = None
-    punctuated_text: Optional[str] = None
-    diff_output: Optional[str] = None
-    alignment_summary: Optional[str] = None
+
+    original_text: str | None = None
+    punctuated_text: str | None = None
+    diff_output: str | None = None
+    alignment_summary: str | None = None
 
 
 class PipelineResponse(BaseModel):
@@ -76,11 +81,11 @@ class PipelineResponse(BaseModel):
     # Punctuated transcript text for convenience (used for default text/plain responses)
     # Note: Raw transcript is excluded by default for privacy and data minimization
     transcript_punct: str | None = None
-    transcript_raw: Optional[str] = None
-    quality_metrics: Optional[QualityMetrics] = None
-    diffs: Optional[HumanReadableDiff] = None
+    transcript_raw: str | None = None
+    quality_metrics: QualityMetrics | None = None
+    diffs: HumanReadableDiff | None = None
     # Optional raw LLM summary text (unparsed), included only on request
-    summary_raw_text: Optional[str] = None
+    summary_raw_text: str | None = None
 
 
 class PreprocessResponse(BaseModel):
@@ -89,14 +94,14 @@ class PreprocessResponse(BaseModel):
 
 class ASRResponse(BaseModel):
     segments: list
-    transcript_raw: Optional[str] = None
+    transcript_raw: str | None = None
 
 
 class PostprocessResponse(BaseModel):
     # Postprocess now returns a structured summary dict (see PipelineResponse.summary)
     summary: dict
     segments: list  # Include segments with punctuated text
-    quality_metrics: Optional[QualityMetrics] = None
-    diffs: Optional[HumanReadableDiff] = None
+    quality_metrics: QualityMetrics | None = None
+    diffs: HumanReadableDiff | None = None
     # Optional raw LLM summary text (unparsed)
-    summary_raw_text: Optional[str] = None
+    summary_raw_text: str | None = None

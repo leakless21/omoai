@@ -2,11 +2,13 @@ import argparse
 import json
 import os
 import sys
+from datetime import UTC
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import torch
-from omoai.logging_system.logger import setup_logging, get_logger
+
+from omoai.logging_system.logger import get_logger, setup_logging
 
 # Initialize unified logging once for scripts
 setup_logging()
@@ -17,28 +19,28 @@ DEBUG_EMPTY_CACHE = os.environ.get("OMOAI_DEBUG_EMPTY_CACHE", "false").lower() =
 
 def ensure_chunkformer_on_path(chunkformer_dir: Path) -> None:
     logger = get_logger(__name__)
-    
+
     logger.info(f"chunkformer_dir: {chunkformer_dir}")
     logger.info(f"chunkformer_dir.exists(): {chunkformer_dir.exists()}")
-    
+
     # Add the chunkformer directory to path if it exists
     if chunkformer_dir.exists() and str(chunkformer_dir) not in sys.path:
         sys.path.insert(0, str(chunkformer_dir))
         logger.info(f"Added chunkformer_dir to sys.path: {chunkformer_dir}")
-    
+
     # Derive repository root from the chunkformer directory (repo_root/chunkformer)
     repo_root = chunkformer_dir.parent
     src_dir = repo_root / "src"
     logger.info(f"src_dir: {src_dir}")
     logger.info(f"src_dir.exists(): {src_dir.exists()}")
-    
+
     # Tests expect the repo's src path to be added to sys.path for imports.
     # Add it unconditionally if not already present so imports can be resolved
     # in test environments where the path may not physically exist.
     if str(src_dir) not in sys.path:
         sys.path.insert(0, str(src_dir))
         logger.info(f"Added src_dir to sys.path: {src_dir} (exists={src_dir.exists()})")
-    
+
     logger.info(f"sys.path: {sys.path}")
 
 
@@ -55,49 +57,54 @@ def run_asr(
     chunkformer_dir: Path,
 ) -> None:
     logger = get_logger(__name__)
-    
+
     logger.info(f"Starting ASR processing for audio: {audio_path}")
     logger.info(f"Model checkpoint path: {model_checkpoint}")
     logger.info(f"Output path: {out_path}")
     logger.info(f"Device: {device_str}")
     logger.info(f"Chunkformer directory: {chunkformer_dir}")
-    
+
     # Check if model checkpoint exists
     if not model_checkpoint.exists():
         logger.error(f"Model checkpoint does not exist: {model_checkpoint}")
         raise FileNotFoundError(f"Model checkpoint not found: {model_checkpoint}")
-    
-    logger.info(f"Model checkpoint exists, size: {model_checkpoint.stat().st_size} bytes")
-    
+
+    logger.info(
+        f"Model checkpoint exists, size: {model_checkpoint.stat().st_size} bytes"
+    )
+
     ensure_chunkformer_on_path(chunkformer_dir)
 
     # Local imports after sys.path adjustment
     try:
         from chunkformer import decode as cfdecode  # type: ignore
+
         logger.info("Successfully imported chunkformer decode module")
     except ImportError as e:
         logger.error(f"Failed to import chunkformer decode module: {e}")
         raise
-    
+
     try:
         import torchaudio.compliance.kaldi as kaldi  # type: ignore
+
         logger.info("Successfully imported torchaudio kaldi")
     except ImportError as e:
         logger.error(f"Failed to import torchaudio kaldi: {e}")
         raise
-    
+
     try:
         from chunkformer.model.utils.ctc_utils import (
             get_output_with_timestamps,
         )  # type: ignore
+
         logger.info("Successfully imported ctc_utils")
     except ImportError as e:
         logger.error(f"Failed to import ctc_utils: {e}")
         raise
-    
+
     try:
-        from contextlib import nullcontext
         from pydub import AudioSegment  # type: ignore
+
         logger.info("Successfully imported pydub AudioSegment")
     except ImportError as e:
         logger.error(f"Failed to import pydub: {e}")
@@ -109,10 +116,10 @@ def run_asr(
         logger.info(f"CUDA device count: {torch.cuda.device_count()}")
         logger.info(f"Current CUDA device: {torch.cuda.current_device()}")
         logger.info(f"CUDA device name: {torch.cuda.get_device_name()}")
-    
+
     device = torch.device(device_str)
     logger.info(f"Using device: {device}")
-    
+
     dtype_map = {
         None: None,
         "fp32": torch.float32,
@@ -137,7 +144,7 @@ def run_asr(
 
     # Maximum duration (seconds) the GPU can handle in one batch
     max_length_limited_context = total_batch_duration
-    max_length_limited_context = int((max_length_limited_context // 0.01)) // 2  # in 10ms
+    max_length_limited_context = int(max_length_limited_context // 0.01) // 2  # in 10ms
 
     multiply_n = max_length_limited_context // chunk_size // subsampling_factor
     truncated_context_size = chunk_size * multiply_n
@@ -147,7 +154,9 @@ def run_asr(
         return r + max(c, r) * (n - 1)
 
     rel_right_context_size = get_max_input_context(
-        chunk_size, max(right_context_size, conv_lorder), model.encoder.num_blocks
+        chunk_size,
+        max(right_context_size, conv_lorder),
+        model.encoder.num_blocks,
     )
     rel_right_context_size = rel_right_context_size * subsampling_factor
 
@@ -155,7 +164,9 @@ def run_asr(
     audio = AudioSegment.from_file(str(audio_path))
     audio = audio.set_frame_rate(16000).set_sample_width(2).set_channels(1)
     audio_duration_s: float = len(audio) / 1000.0
-    waveform = torch.as_tensor(audio.get_array_of_samples(), dtype=torch.float32).unsqueeze(0)
+    waveform = torch.as_tensor(
+        audio.get_array_of_samples(), dtype=torch.float32
+    ).unsqueeze(0)
 
     # Extract log-mel filterbank features (Kaldi fbank) like decode.py
     xs = kaldi.fbank(
@@ -176,18 +187,20 @@ def run_asr(
             left_context_size,
             model.encoder.attention_heads,
             model.encoder._output_size * 2 // model.encoder.attention_heads,
-        )
+        ),
     ).to(device)
     cnn_cache = torch.zeros(
-        (model.encoder.num_blocks, model.encoder._output_size, conv_lorder)
+        (model.encoder.num_blocks, model.encoder._output_size, conv_lorder),
     ).to(device)
 
-    hyps: List[torch.Tensor] = []
+    hyps: list[torch.Tensor] = []
     # Use explicit autocast for better performance
     ctx = torch.autocast(device.type, dtype=amp_dtype, enabled=(amp_dtype is not None))
     # Use inference_mode for better performance over no_grad
     with torch.inference_mode(), ctx:
-        for idx, _ in enumerate(range(0, xs.shape[1], truncated_context_size * subsampling_factor)):
+        for idx, _ in enumerate(
+            range(0, xs.shape[1], truncated_context_size * subsampling_factor)
+        ):
             start = max(truncated_context_size * subsampling_factor * idx, 0)
             end = min(
                 truncated_context_size * subsampling_factor * (idx + 1) + 7,
@@ -216,9 +229,12 @@ def run_asr(
                 offset=offset,
             )
 
-            encoder_outs = encoder_outs.reshape(1, -1, encoder_outs.shape[-1])[:, :encoder_lens]
+            encoder_outs = encoder_outs.reshape(1, -1, encoder_outs.shape[-1])[
+                :, :encoder_lens
+            ]
             if (
-                chunk_size * multiply_n * subsampling_factor * idx + rel_right_context_size
+                chunk_size * multiply_n * subsampling_factor * idx
+                + rel_right_context_size
                 < xs.shape[1]
             ):
                 # exclude the output of relative right context
@@ -232,13 +248,14 @@ def run_asr(
             if DEBUG_EMPTY_CACHE and device.type == "cuda":
                 torch.cuda.empty_cache()
             if (
-                chunk_size * multiply_n * subsampling_factor * idx + rel_right_context_size
+                chunk_size * multiply_n * subsampling_factor * idx
+                + rel_right_context_size
                 >= xs.shape[1]
             ):
                 break
 
     if len(hyps) == 0:
-        segments: List[Dict[str, Any]] = []
+        segments: list[dict[str, Any]] = []
         transcript_raw = ""
     else:
         hyps_cat = torch.cat(hyps)
@@ -247,11 +264,18 @@ def run_asr(
             {"start": item["start"], "end": item["end"], "text_raw": item["decode"]}
             for item in decode
         ]
-        transcript_raw = " ".join(seg["text_raw"].strip() for seg in segments if seg["text_raw"])\
-            .replace("  ", " ").strip()
+        transcript_raw = (
+            " ".join(seg["text_raw"].strip() for seg in segments if seg["text_raw"])
+            .replace("  ", " ")
+            .strip()
+        )
 
-    output: Dict[str, Any] = {
-        "audio": {"sr": 16000, "path": str(audio_path.resolve()), "duration_s": audio_duration_s},
+    output: dict[str, Any] = {
+        "audio": {
+            "sr": 16000,
+            "path": str(audio_path.resolve()),
+            "duration_s": audio_duration_s,
+        },
         "segments": segments,
         "transcript_raw": transcript_raw,
         "metadata": {
@@ -272,9 +296,18 @@ def run_asr(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ASR wrapper for ChunkFormer (JSON output)")
-    parser.add_argument("--config", type=str, default="/home/cetech/omoai/config.yaml", help="Path to config.yaml")
-    parser.add_argument("--audio", type=str, required=True, help="Path to input audio file")
+    parser = argparse.ArgumentParser(
+        description="ASR wrapper for ChunkFormer (JSON output)"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="/home/cetech/omoai/config.yaml",
+        help="Path to config.yaml",
+    )
+    parser.add_argument(
+        "--audio", type=str, required=True, help="Path to input audio file"
+    )
     parser.add_argument(
         "--model-dir",
         type=str,
@@ -282,19 +315,31 @@ def main() -> None:
         help="Path to local HuggingFace checkpoint repo (ChunkFormer)",
     )
     parser.add_argument("--out", type=str, required=True, help="Path to output JSON")
-    parser.add_argument("--auto-outdir", action="store_true", help="Create per-input folder under paths.out_dir/{stem-YYYYMMDD-HHMMSS}")
+    parser.add_argument(
+        "--auto-outdir",
+        action="store_true",
+        help="Create per-input folder under paths.out_dir/{stem-YYYYMMDD-HHMMSS}",
+    )
     parser.add_argument(
         "--total-batch-duration",
         type=int,
         default=1800,
         help="Total audio duration per batch in seconds (default 1800)",
     )
-    parser.add_argument("--chunk-size", type=int, default=64, help="Chunk size (default 64)")
     parser.add_argument(
-        "--left-context-size", type=int, default=128, help="Left context size (default 128)"
+        "--chunk-size", type=int, default=64, help="Chunk size (default 64)"
     )
     parser.add_argument(
-        "--right-context-size", type=int, default=128, help="Right context size (default 128)"
+        "--left-context-size",
+        type=int,
+        default=128,
+        help="Left context size (default 128)",
+    )
+    parser.add_argument(
+        "--right-context-size",
+        type=int,
+        default=128,
+        help="Right context size (default 128)",
     )
     parser.add_argument(
         "--device",
@@ -317,17 +362,15 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    
-    # Initialize logger for main function
-    logger = get_logger(__name__)
-    
+
     # Load centralized configuration using the project's Pydantic schemas
     try:
         from omoai.config.schemas import get_config
-    except Exception:
+    except ImportError:
         # If package imports fail (script execution from repo root), add src/ to sys.path and retry
         import sys as _sys
         from pathlib import Path as _Path
+
         _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "src"))
         from omoai.config.schemas import get_config
 
@@ -336,16 +379,19 @@ def main() -> None:
     # Resolve parameters with precedence: CLI flag -> centralized config (Pydantic defaults applied there)
     model_dir = args.model_dir or str(cfg.paths.chunkformer_checkpoint)
     if not model_dir:
-        raise SystemExit("Missing --model-dir and paths.chunkformer_checkpoint in configuration")
+        raise SystemExit(
+            "Missing --model-dir and paths.chunkformer_checkpoint in configuration"
+        )
 
     # Auto output dir per input file, if requested
     out_path = Path(args.out)
     if args.auto_outdir:
-        from datetime import datetime, timezone
+        from datetime import datetime
+
         stem = Path(args.audio).stem
         base_root = cfg.paths.out_dir
         # Timestamp-based folder name, UTC for stability
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         candidate = base_root / f"{stem}-{timestamp}"
         # Avoid rare collisions within the same second by suffixing a counter
         if candidate.exists():
@@ -361,7 +407,9 @@ def main() -> None:
         audio_path=Path(args.audio),
         model_checkpoint=Path(model_dir),
         out_path=out_path,
-        total_batch_duration=int(args.total_batch_duration or cfg.asr.total_batch_duration_s),
+        total_batch_duration=int(
+            args.total_batch_duration or cfg.asr.total_batch_duration_s
+        ),
         chunk_size=int(args.chunk_size or cfg.asr.chunk_size),
         left_context_size=int(args.left_context_size or cfg.asr.left_context_size),
         right_context_size=int(args.right_context_size or cfg.asr.right_context_size),
@@ -373,4 +421,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

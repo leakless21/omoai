@@ -1,14 +1,7 @@
-import json
-import sys
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-
 from litestar import Controller, post
 from litestar.datastructures import State
 
-from omoai.api.models import PostprocessRequest, PostprocessResponse, OutputFormatParams
-
-
+from omoai.api.models import OutputFormatParams, PostprocessRequest, PostprocessResponse
 from omoai.api.services import postprocess_service
 
 
@@ -20,7 +13,7 @@ class PostprocessController(Controller):
         self,
         data: PostprocessRequest,
         state: State,
-        output_params: Optional[OutputFormatParams] = None
+        output_params: OutputFormatParams | None = None,
     ) -> PostprocessResponse:
         """Process post-processing request with optional output formatting.
 
@@ -47,7 +40,7 @@ class PostprocessController(Controller):
                 "summary_lang": output_params.summary_lang,
                 "return_summary_raw": output_params.return_summary_raw,
             }
-        
+
         result = await postprocess_service(data, output_params_dict)
-        
+
         return result

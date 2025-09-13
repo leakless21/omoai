@@ -4,9 +4,12 @@ Pydantic schemas for configuration validation.
 This module provides comprehensive validation for the OMOAI configuration
 with security defaults and type safety.
 """
+
+import logging
 import os
+import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,19 +23,31 @@ class LoggingSettings(BaseModel):
 
     # Base behavior
     level: str = Field(default="INFO", description="Root logging level")
-    format_type: str = Field(default="structured", description="structured | json | simple")
+    format_type: str = Field(
+        default="structured", description="structured | json | simple"
+    )
     enable_console: bool = Field(default=True, description="Enable console output")
     enable_file: bool = Field(default=False, description="Enable file output")
 
     # File logging
-    log_file: Path | None = Field(default=Path("logs/app.log"), description="Log file path")
-    max_file_size: int = Field(default=10 * 1024 * 1024, description="Max file size in bytes")
+    log_file: Path | None = Field(
+        default=Path("logs/app.log"), description="Log file path"
+    )
+    max_file_size: int = Field(
+        default=10 * 1024 * 1024, description="Max file size in bytes"
+    )
     backup_count: int = Field(default=5, description="Number of rotated backups")
 
     # Advanced (for future Loguru migration compatibility)
-    rotation: str | None = Field(default=None, description="Rotation policy (e.g., '10 MB')")
-    retention: str | None = Field(default=None, description="Retention policy (e.g., '14 days')")
-    compression: str | None = Field(default=None, description="Compression (e.g., 'gz')")
+    rotation: str | None = Field(
+        default=None, description="Rotation policy (e.g., '10 MB')"
+    )
+    retention: str | None = Field(
+        default=None, description="Retention policy (e.g., '14 days')"
+    )
+    compression: str | None = Field(
+        default=None, description="Compression (e.g., 'gz')"
+    )
     enqueue: bool | None = Field(default=None, description="Async logging if supported")
 
     # Performance / tracing / errors / metrics
@@ -57,23 +72,24 @@ class LoggingSettings(BaseModel):
             return v
         s = str(v)
         if s.startswith("@logs/"):
-            return Path("logs") / s[len("@logs/"):]
+            return Path("logs") / s[len("@logs/") :]
         return v
+
 
 class PathsConfig(BaseModel):
     """Configuration for file and directory paths."""
-    
+
     chunkformer_dir: Path = Field(
-        description="Path to the ChunkFormer source directory"
+        description="Path to the ChunkFormer source directory",
     )
     chunkformer_checkpoint: Path = Field(
-        description="Path to the ChunkFormer model checkpoint"
+        description="Path to the ChunkFormer model checkpoint",
     )
     out_dir: Path = Field(
         default=Path("data/output"),
-        description="Output directory for artifacts"
+        description="Output directory for artifacts",
     )
-    
+
     @field_validator("chunkformer_dir", "chunkformer_checkpoint")
     @classmethod
     def validate_required_paths_exist(cls, v: Path) -> Path:
@@ -81,7 +97,7 @@ class PathsConfig(BaseModel):
         if not v.exists():
             raise ValueError(f"Required path does not exist: {v}")
         return v
-    
+
     @field_validator("out_dir")
     @classmethod
     def ensure_out_dir_exists(cls, v: Path) -> Path:
@@ -89,209 +105,221 @@ class PathsConfig(BaseModel):
         try:
             v.mkdir(parents=True, exist_ok=True)
         except (OSError, PermissionError) as e:
-            raise ValueError(f"Cannot create output directory {v}: {e}")
+            raise ValueError(f"Cannot create output directory {v}: {e}") from e
         return v
 
 
 class ASRConfig(BaseModel):
     """Configuration for Automatic Speech Recognition."""
-    
+
     total_batch_duration_s: int = Field(
         default=1800,
         ge=60,  # Minimum 1 minute
         le=7200,  # Maximum 2 hours
-        description="Maximum audio duration (seconds) per batch"
+        description="Maximum audio duration (seconds) per batch",
     )
     chunk_size: int = Field(
         default=64,
         ge=16,
         le=512,
-        description="ChunkFormer chunk size"
+        description="ChunkFormer chunk size",
     )
     left_context_size: int = Field(
         default=128,
         ge=0,
         le=1024,
-        description="Left context size for ChunkFormer"
+        description="Left context size for ChunkFormer",
     )
     right_context_size: int = Field(
         default=128,
         ge=0,
         le=1024,
-        description="Right context size for ChunkFormer"
+        description="Right context size for ChunkFormer",
     )
     device: Literal["cpu", "cuda", "auto"] = Field(
         default="auto",
-        description="Device for ASR inference"
+        description="Device for ASR inference",
     )
-    autocast_dtype: Optional[Literal["fp32", "bf16", "fp16"]] = Field(
+    autocast_dtype: Literal["fp32", "bf16", "fp16"] | None = Field(
         default="fp16",
-        description="Autocast dtype for mixed precision"
+        description="Autocast dtype for mixed precision",
     )
-    
+
     @field_validator("device")
     @classmethod
     def validate_device(cls, v: str) -> str:
         """Validate device setting."""
         if v == "auto":
             import torch
+
             return "cuda" if torch.cuda.is_available() else "cpu"
         return v
 
 
 class LLMConfig(BaseModel):
     """Configuration for Large Language Model inference."""
-    
-    model_id: Optional[str] = Field(
+
+    model_id: str | None = Field(
         default=None,
-        description="Hugging Face model identifier"
+        description="Hugging Face model identifier",
     )
-    quantization: Optional[str] = Field(
+    quantization: str | None = Field(
         default="auto",
-        description="Quantization method (auto, awq, gptq, etc.)"
+        description="Quantization method (auto, awq, gptq, etc.)",
     )
     max_model_len: int = Field(
         default=8192,
         ge=512,
         le=200000,
-        description="Maximum model context length"
+        description="Maximum model context length",
     )
     gpu_memory_utilization: float = Field(
         default=0.85,
         ge=0.1,
         le=1.0,
-        description="GPU memory utilization ratio"
+        description="GPU memory utilization ratio",
     )
     max_num_seqs: int = Field(
         default=1,
         ge=1,
         le=256,
-        description="Maximum number of concurrent sequences"
+        description="Maximum number of concurrent sequences",
     )
-    max_num_batched_tokens: Optional[int] = Field(
+    max_num_batched_tokens: int | None = Field(
         default=None,
         ge=1,
-        description="Maximum number of batched tokens"
+        description="Maximum number of batched tokens",
     )
     trust_remote_code: bool = Field(
         default=False,  # SECURITY: Default to False
-        description="Whether to trust remote code execution (SECURITY RISK)"
+        description="Whether to trust remote code execution (SECURITY RISK)",
     )
-    
+
     @field_validator("trust_remote_code")
     @classmethod
     def warn_trust_remote_code(cls, v: bool) -> bool:
         """Warn about security implications of trust_remote_code."""
         if v:
             import warnings
+
             warnings.warn(
                 "trust_remote_code=True enables arbitrary code execution from model repositories. "
                 "This is a SECURITY RISK. Only enable if you trust the model source.",
                 UserWarning,
-                stacklevel=3
+                stacklevel=3,
             )
         return v
 
 
 class SamplingConfig(BaseModel):
     """Configuration for LLM sampling parameters."""
-    
+
     temperature: float = Field(
         default=0.0,
         ge=0.0,
         le=2.0,
-        description="Sampling temperature"
+        description="Sampling temperature",
     )
 
 
 class PunctuationConfig(BaseModel):
     """Configuration for punctuation restoration."""
-    
+
     llm: LLMConfig
     preserve_original_words: bool = Field(
         default=True,
-        description="Whether to preserve original word order"
+        description="Whether to preserve original word order",
     )
     auto_switch_ratio: float = Field(
         default=0.98,
         ge=0.5,
         le=1.0,
-        description="Ratio of context used for token budget"
+        description="Ratio of context used for token budget",
     )
     auto_margin_tokens: int = Field(
         default=128,
         ge=16,
         le=1024,
-        description="Safety margin tokens"
+        description="Safety margin tokens",
     )
     enable_paragraphs: bool = Field(
         default=True,
-        description="Enable paragraph breaks based on timing"
+        description="Enable paragraph breaks based on timing",
     )
     join_separator: str = Field(
         default=" ",
-        description="Separator for joining segments"
+        description="Separator for joining segments",
     )
     paragraph_gap_seconds: float = Field(
         default=3.0,
         ge=0.5,
         le=30.0,
-        description="Time gap threshold for paragraph breaks"
+        description="Time gap threshold for paragraph breaks",
     )
     system_prompt: str = Field(
-        description="System prompt for punctuation model"
+        description="System prompt for punctuation model",
     )
-    user_prompt: Optional[str] = Field(
+    user_prompt: str | None = Field(
         default=None,
-        description="A user-defined prompt to guide the punctuation model."
+        description="A user-defined prompt to guide the punctuation model.",
     )
     sampling: SamplingConfig = Field(
         default_factory=SamplingConfig,
-        description="Sampling configuration"
+        description="Sampling configuration",
     )
 
 
 class SummarizationConfig(BaseModel):
     """Configuration for text summarization."""
-    
+
     llm: LLMConfig
     map_reduce: bool = Field(
         default=False,
-        description="Use map-reduce for very long texts"
+        description="Use map-reduce for very long texts",
     )
     auto_switch_ratio: float = Field(
         default=0.98,
         ge=0.5,
         le=1.0,
-        description="Auto-switch to map-reduce ratio"
+        description="Auto-switch to map-reduce ratio",
     )
     auto_margin_tokens: int = Field(
         default=256,
         ge=16,
         le=1024,
-        description="Safety margin tokens"
+        description="Safety margin tokens",
     )
     system_prompt: str = Field(
-        description="System prompt for summarization model"
+        description="System prompt for summarization model",
     )
-    user_prompt: Optional[str] = Field(
+    user_prompt: str | None = Field(
         default=None,
-        description="A user-defined prompt to guide the summarization model."
+        description="A user-defined prompt to guide the summarization model.",
     )
     sampling: SamplingConfig = Field(
         default_factory=lambda: SamplingConfig(temperature=0.7),
-        description="Sampling configuration"
+        description="Sampling configuration",
     )
 
 
 class TranscriptOutputConfig(BaseModel):
     """Configuration for transcript outputs and file naming."""
 
-    include_raw: bool = Field(default=True, description="Include raw transcript in outputs")
-    include_punct: bool = Field(default=True, description="Include punctuated transcript in outputs")
-    include_segments: bool = Field(default=True, description="Include segment list in outputs")
-    timestamps: Literal["none", "s", "ms", "clock"] = Field(default="clock", description="Timestamp format")
-    wrap_width: int = Field(default=100, ge=0, description="Text wrapping width (0 = no wrapping)")
+    include_raw: bool = Field(
+        default=True, description="Include raw transcript in outputs"
+    )
+    include_punct: bool = Field(
+        default=True, description="Include punctuated transcript in outputs"
+    )
+    include_segments: bool = Field(
+        default=True, description="Include segment list in outputs"
+    )
+    timestamps: Literal["none", "s", "ms", "clock"] = Field(
+        default="clock", description="Timestamp format"
+    )
+    wrap_width: int = Field(
+        default=100, ge=0, description="Text wrapping width (0 = no wrapping)"
+    )
 
     # Filenames (when writing to disk)
     file_raw: str = Field(default="transcript.raw.txt")
@@ -325,8 +353,9 @@ class OutputConfig(BaseModel):
     wrap_width: int = Field(default=0, ge=0)
 
     # Structured configuration for programmatic outputs
-    formats: List[Literal["json", "text", "srt", "vtt", "md"]] = Field(
-        default_factory=lambda: ["json"], description="Which formats to generate"
+    formats: list[Literal["json", "text", "srt", "vtt", "md"]] = Field(
+        default_factory=lambda: ["json"],
+        description="Which formats to generate",
     )
     transcript: TranscriptOutputConfig = Field(default_factory=TranscriptOutputConfig)
     summary: SummaryOutputConfig = Field(default_factory=SummaryOutputConfig)
@@ -334,10 +363,10 @@ class OutputConfig(BaseModel):
 
     # API persistence controls
     save_on_api: bool = Field(default=False)
-    save_formats_on_api: List[Literal["final_json", "segments", "transcripts"]] = Field(
-        default_factory=lambda: ["final_json"]
+    save_formats_on_api: list[Literal["final_json", "segments", "transcripts"]] = Field(
+        default_factory=lambda: ["final_json"],
     )
-    api_output_dir: Optional[Path] = Field(default=None)
+    api_output_dir: Path | None = Field(default=None)
 
     @model_validator(mode="after")
     def validate_legacy_mapping(self) -> "OutputConfig":
@@ -350,54 +379,53 @@ class OutputConfig(BaseModel):
                 # Do not overwrite if transcript.wrap_width explicitly different in configs
                 if (self.transcript.wrap_width or 0) != self.wrap_width:
                     self.transcript.wrap_width = int(self.wrap_width)
-        except Exception:
-            pass
+        except (ValueError, AttributeError) as e:
+            logging.getLogger(__name__).debug("Failed to sync wrap_width: %s", e)
         return self
 
 
 class APIConfig(BaseModel):
     """Configuration for API server."""
-    
+
     host: str = Field(
         default="127.0.0.1",  # SECURITY: Default to localhost
-        description="API server host"
+        description="API server host",
     )
     port: int = Field(
         default=8000,
         ge=1024,
         le=65535,
-        description="API server port"
+        description="API server port",
     )
     max_body_size_mb: int = Field(
         default=100,
         ge=1,
         le=1000,
-        description="Maximum request body size in MB"
+        description="Maximum request body size in MB",
     )
     request_timeout_seconds: int = Field(
         default=300,
         ge=30,
         le=3600,
-        description="Request timeout in seconds"
+        description="Request timeout in seconds",
     )
     temp_dir: Path = Field(
-        default=Path("/tmp"),
-        description="Temporary files directory"
+        default_factory=lambda: Path(tempfile.gettempdir()),
+        description="Temporary files directory",
     )
     cleanup_temp_files: bool = Field(
         default=True,
-        description="Automatically cleanup temporary files"
+        description="Automatically cleanup temporary files",
     )
     enable_progress_output: bool = Field(
         default=False,  # SECURITY: Default to False for production
-        description="Enable progress output (may leak information)"
+        description="Enable progress output (may leak information)",
     )
-    health_check_dependencies: List[str] = Field(
+    health_check_dependencies: list[str] = Field(
         default_factory=lambda: ["ffmpeg", "config_file"],
-        description="Dependencies to check in health endpoint"
+        description="Dependencies to check in health endpoint",
     )
-    
-    
+
     @field_validator("temp_dir")
     @classmethod
     def validate_temp_dir(cls, v: Path) -> Path:
@@ -409,87 +437,97 @@ class APIConfig(BaseModel):
             test_file.touch()
             test_file.unlink()
         except (OSError, PermissionError) as e:
-            raise ValueError(f"Temporary directory {v} is not accessible: {e}")
+            raise ValueError(f"Temporary directory {v} is not accessible: {e}") from e
         return v
 
 
 class OmoAIConfig(BaseSettings):
     """Main OMOAI configuration with environment variable support."""
-    
+
     model_config = SettingsConfigDict(
         env_prefix="OMOAI_",
         env_nested_delimiter="__",
         case_sensitive=False,
         extra="forbid",  # Reject unknown fields
     )
-    
+
     paths: PathsConfig
-    logging: LoggingSettings | None = Field(default=None, description="Logging configuration")
+    logging: LoggingSettings | None = Field(
+        default=None, description="Logging configuration"
+    )
     asr: ASRConfig = Field(default_factory=ASRConfig)
     llm: LLMConfig = Field(
-        description="Base LLM configuration (model_id required)"
+        description="Base LLM configuration (model_id required)",
     )
     punctuation: PunctuationConfig
     summarization: SummarizationConfig
-    output: Optional[OutputConfig] = Field(default=None, description="Output configuration")
+    output: OutputConfig | None = Field(
+        default=None, description="Output configuration"
+    )
     api: APIConfig = Field(default_factory=APIConfig)
-    
+
     @model_validator(mode="after")
     def validate_config_consistency(self) -> "OmoAIConfig":
         """Validate cross-field consistency."""
         # Validate base LLM has model_id
         if not self.llm.model_id:
             raise ValueError("Base llm.model_id is required")
-        
+
         # Ensure punctuation and summarization inherit base LLM model_id if not set
         if not self.punctuation.llm.model_id:
             self.punctuation.llm.model_id = self.llm.model_id
-        
+
         if not self.summarization.llm.model_id:
             self.summarization.llm.model_id = self.llm.model_id
-        
+
         # Validate trust_remote_code consistency
-        if (self.llm.trust_remote_code or 
-            self.punctuation.llm.trust_remote_code or 
-            self.summarization.llm.trust_remote_code):
+        if (
+            self.llm.trust_remote_code
+            or self.punctuation.llm.trust_remote_code
+            or self.summarization.llm.trust_remote_code
+        ):
             import warnings
+
             warnings.warn(
                 "At least one LLM configuration has trust_remote_code=True. "
                 "This enables arbitrary code execution. Ensure you trust all model sources.",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
-        
+
         return self
-    
+
     @classmethod
     def load_from_yaml(cls, config_path: Path) -> "OmoAIConfig":
         """Load configuration from YAML file with validation."""
         import yaml
-        
+
         if not config_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
-        
+
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 raw_config = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML in config file {config_path}: {e}")
-        
+            raise ValueError(f"Invalid YAML in config file {config_path}: {e}") from e
+
         if not raw_config:
             raise ValueError(f"Empty configuration file: {config_path}")
-        
+
         try:
             return cls(**raw_config)
         except Exception as e:
-            raise ValueError(f"Configuration validation failed for {config_path}: {e}")
-    
+            raise ValueError(
+                f"Configuration validation failed for {config_path}: {e}"
+            ) from e
+
     def model_dump_yaml(self, **kwargs) -> str:
         """Export configuration as YAML string."""
         import yaml
+
         # Convert Path objects to strings for YAML serialization
         data = self.model_dump(mode="python", **kwargs)
-        
+
         def convert_paths(obj):
             if isinstance(obj, dict):
                 return {k: convert_paths(v) for k, v in obj.items()}
@@ -499,10 +537,10 @@ class OmoAIConfig(BaseSettings):
                 return str(obj)
             else:
                 return obj
-        
+
         data = convert_paths(data)
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
-    
+
     def save_to_yaml(self, config_path: Path, **kwargs) -> None:
         """Save configuration to YAML file."""
         yaml_content = self.model_dump_yaml(**kwargs)
@@ -512,7 +550,7 @@ class OmoAIConfig(BaseSettings):
 
 
 # Legacy compatibility functions
-def load_config(config_path: Optional[Union[str, Path]] = None) -> OmoAIConfig:
+def load_config(config_path: str | Path | None = None) -> OmoAIConfig:
     """Load and validate configuration from YAML file."""
     if config_path is None:
         # Search for config.yaml in common locations
@@ -520,30 +558,31 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> OmoAIConfig:
             Path.cwd() / "config.yaml",
             Path(__file__).parent.parent.parent.parent / "config.yaml",
         ]
-        
+
         env_config = os.environ.get("OMOAI_CONFIG")
         if env_config:
             search_paths.insert(0, Path(env_config))
-        
+
         config_path = None
         for path in search_paths:
             if path.exists():
                 config_path = path
                 break
-        
+
         if config_path is None:
             raise FileNotFoundError(
                 f"Configuration file not found. Searched: {search_paths}. "
-                f"Set OMOAI_CONFIG environment variable or create config.yaml"
+                f"Set OMOAI_CONFIG environment variable or create config.yaml",
             )
-    
+
     return OmoAIConfig.load_from_yaml(Path(config_path))
 
 
 # Module-level singleton container for the validated configuration.
 # Using a module-level variable avoids attaching attributes to functions,
 # which resolves static-analyzer (Pylance) warnings and is simpler to reason about.
-_GLOBAL_CONFIG: Optional[OmoAIConfig] = None
+_GLOBAL_CONFIG: OmoAIConfig | None = None
+
 
 def get_config() -> OmoAIConfig:
     """Get the global configuration instance (singleton pattern).
@@ -557,7 +596,8 @@ def get_config() -> OmoAIConfig:
         _GLOBAL_CONFIG = load_config()
     return _GLOBAL_CONFIG
 
-def reload_config(config_path: Optional[Union[str, Path]] = None) -> OmoAIConfig:
+
+def reload_config(config_path: str | Path | None = None) -> OmoAIConfig:
     """Reload the global configuration instance.
 
     If config_path is provided, it will be used as the OMOAI_CONFIG location

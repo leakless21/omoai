@@ -35,5 +35,111 @@ start = "omoai.main:main"
 interactive = "omoai.interactive_cli:run_interactive_cli"
 api = "omoai.api.app:main"
 
+[project.optional-dependencies]
+dev = [
+    "ruff==0.13.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+# Keep Python formatting compatible with Black defaults
+line-length = 88
+target-version = "py311"
+extend-exclude = [
+    # Large or generated assets that shouldn't be linted
+    "src/chunkformer/data",
+    "src/chunkformer/docs",
+    "docs",
+    "tests/assets",
+]
+
+[tool.ruff.lint]
+# Enable common, high-signal rulesets
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "W",   # pycodestyle warnings
+    "N",   # pep8-naming
+    "S",   # flake8-bandit (security)
+    "BLE", # flake8-blind-except
+    "COM", # flake8-commas
+    "C90", # mccabe complexity
+    "RUF", # Ruff-specific rules
+]
+# Let Black manage line length; avoid noisy E501
+ignore = ["E501", "COM812"]
+
+[tool.ruff.lint.mccabe]
+# Raise complexity threshold; most functions are below this except a few scripted CLIs
+max-complexity = 40
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = [
+    "S101",   # allow assert in tests
+    "E402",   # imports not at top (test setup fiddling sys.path)
+    "S108",   # allow temporary paths usage in tests
+    "S112",   # try-except-continue patterns in tests
+    "S110",   # try-except-pass patterns in tests
+    "S603",   # subprocess usage in tests
+    "BLE001", # broad exceptions in tests
+]
+"src/*/__init__.py" = ["F401"]     # allow re-export imports
+"scripts/post.py" = [
+    "C901",   # very long CLI flow; keep for now
+]
+"src/omoai/api/services.py" = [
+    "BLE001", # broad exceptions in orchestrator are acceptable with logging
+    "S603",   # controlled subprocess usage
+    "S110",   # occasional try/except/pass for best-effort telemetry
+]
+"src/omoai/api/health.py" = [
+    "BLE001", # broad config error handling at endpoint level
+    "S603",   # controlled subprocess usage for system dependency checks
+]
+"src/omoai/api/exceptions.py" = [
+    "N818",   # keep existing Exception class names for compatibility
+]
+"src/omoai/api/app.py" = [
+    "S104",   # bind 0.0.0.0 for containerized deployment
+]
+"src/omoai/interactive_cli.py" = [
+    "BLE001",
+    "S603",
+    "S110",
+]
+"src/omoai/logging_system/config.py" = [
+    "BLE001",  # fallback patterns in logging adapters
+    "S110",   # try/except/pass for best-effort logging setup
+]
+"src/omoai/logging_system/serializers.py" = [
+    "BLE001",  # fallback patterns in serialization
+]
+"src/omoai/pipeline/postprocess_core_utils.py" = [
+    "BLE001",
+    "C901",
+]
+"src/omoai/api/scripts/asr_wrapper.py" = [
+    "S603",
+]
+"src/omoai/api/scripts/postprocess_wrapper.py" = [
+    "S603",
+    "BLE001",
+]
+"scripts/preprocess.py" = [
+    "S603",
+]
+"src/omoai/config/schemas.py" = [
+    # Most issues resolved; may still have some broad except patterns
+]
+"src/omoai/logging_system/metrics.py" = [
+    "BLE001",
+]
+"src/omoai/main.py" = [
+    "BLE001",  # orchestrator error handling patterns
+    "S110",   # best-effort GPU cache clearing
+]

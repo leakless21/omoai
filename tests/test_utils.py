@@ -1,9 +1,11 @@
-from pathlib import Path
-import types
 import numpy as np
 
 # Migrated to pure utility module (no shim / no CUDA side effects)
-from omoai.pipeline.postprocess_core_utils import _parse_time_to_seconds, _dedup_overlap, join_punctuated_segments
+from omoai.pipeline.postprocess_core_utils import (
+    _dedup_overlap,
+    _parse_time_to_seconds,
+    join_punctuated_segments,
+)
 
 
 class MockTorchTensor:
@@ -17,8 +19,13 @@ class MockTorchTensor:
     - .to(device) -> self (no-op)
     - .unsqueeze(dim) -> returns self (no-op)
     """
+
     def __init__(self, shape_or_values):
-        if isinstance(shape_or_values, (list, tuple)) and len(shape_or_values) == 2 and all(isinstance(x, int) for x in shape_or_values):
+        if (
+            isinstance(shape_or_values, (list, tuple))
+            and len(shape_or_values) == 2
+            and all(isinstance(x, int) for x in shape_or_values)
+        ):
             self._arr = np.zeros(tuple(shape_or_values), dtype=np.float32)
         else:
             self._arr = np.array(shape_or_values, dtype=np.float32)
@@ -62,7 +69,3 @@ def test_join_punctuated_segments_paragraphs():
     out = join_punctuated_segments(segs, join_separator=" ", paragraph_gap_seconds=3.0)
     assert "Xin chào." in out and "Hôm nay khỏe không?" in out
     assert "\n\n" in out  # paragraph break due to gap >= 3.0
-
-
-
-

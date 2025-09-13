@@ -1,8 +1,10 @@
 """Health check module for the API."""
-import subprocess
-import sys
+
 import os
+import shutil
+import subprocess
 from pathlib import Path
+
 from litestar import get
 from litestar.response import Response
 
@@ -44,10 +46,23 @@ async def health_check() -> Response[dict]:
         for dependency in config.api.health_check_dependencies:
             if dependency == "ffmpeg":
                 try:
-                    subprocess.run(["ffmpeg", "-version"],
-                                   capture_output=True, check=True, timeout=10)
+                    ffmpeg_path = shutil.which("ffmpeg")
+                    if not ffmpeg_path:
+                        details["ffmpeg"] = "not found in PATH"
+                        status = "unhealthy"
+                        continue
+                    subprocess.run(
+                        [ffmpeg_path, "-version"],
+                        capture_output=True,
+                        check=True,
+                        timeout=10,
+                    )
                     details["ffmpeg"] = "available"
-                except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+                except (
+                    subprocess.CalledProcessError,
+                    FileNotFoundError,
+                    subprocess.TimeoutExpired,
+                ):
                     details["ffmpeg"] = "unavailable"
                     status = "unhealthy"
 
@@ -59,13 +74,16 @@ async def health_check() -> Response[dict]:
                         if p and p.exists():
                             found = p
                             break
-                    except Exception:
+                    except (OSError, ValueError):
+                        # Path check failed; skip this candidate
                         continue
 
                 if found:
                     details["config_file"] = f"found at {found}"
                 else:
-                    details["config_file"] = f"not found (searched: {[str(p) for p in config_candidates]})"
+                    details["config_file"] = (
+                        f"not found (searched: {[str(p) for p in config_candidates]})"
+                    )
                     status = "unhealthy"
 
             # Legacy keys are intentionally ignored; script-based wrappers are used below
@@ -73,17 +91,24 @@ async def health_check() -> Response[dict]:
         # Lightweight module availability checks (no heavy imports)
         try:
             import importlib.util as _ilus
+
             scripts_ok = {
                 "scripts.asr": _ilus.find_spec("scripts.asr") is not None,
                 "scripts.post": _ilus.find_spec("scripts.post") is not None,
-                "wrappers.asr": _ilus.find_spec("omoai.api.scripts.asr_wrapper") is not None,
-                "wrappers.post": _ilus.find_spec("omoai.api.scripts.postprocess_wrapper") is not None,
+                "wrappers.asr": _ilus.find_spec("omoai.api.scripts.asr_wrapper")
+                is not None,
+                "wrappers.post": _ilus.find_spec(
+                    "omoai.api.scripts.postprocess_wrapper"
+                )
+                is not None,
             }
-            details["script_modules"] = {k: ("available" if v else "missing") for k, v in scripts_ok.items()}
+            details["script_modules"] = {
+                k: ("available" if v else "missing") for k, v in scripts_ok.items()
+            }
             if not all(scripts_ok.values()):
                 # Non-fatal but worth surfacing as degraded
                 status = "degraded" if status == "healthy" else status
-        except Exception:
+        except ImportError:
             details["script_modules"] = {"error": "module checks failed"}
 
         # Check temp directory
@@ -100,7 +125,7 @@ async def health_check() -> Response[dict]:
 
     except Exception as e:
         status = "unhealthy"
-        details["error"] = f"Configuration error: {str(e)}"
+        details["error"] = f"Configuration error: {e!s}"
         status_code = 500
 
     if status == "unhealthy":
@@ -110,5 +135,5 @@ async def health_check() -> Response[dict]:
 
     return Response(
         content={"status": status, "details": details},
-        status_code=status_code
+        status_code=status_code,
     )

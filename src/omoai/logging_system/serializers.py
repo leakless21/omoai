@@ -1,13 +1,14 @@
 """
 Custom serializers and formatters for OMOAI logging.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import traceback as _traceback
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, ClassVar
 
 
 def _iso_timestamp(dt: datetime) -> str:
@@ -18,7 +19,7 @@ def _iso_timestamp(dt: datetime) -> str:
         return dt.isoformat()
 
 
-def flat_json_serializer(record: Dict[str, Any]) -> str:
+def flat_json_serializer(record: dict[str, Any]) -> str:
     """
     Loguru-compatible serializer that returns a JSON line per record.
 
@@ -47,7 +48,7 @@ def flat_json_serializer(record: Dict[str, Any]) -> str:
     elif level_obj:
         level_name = str(level_obj)
 
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "timestamp": ts,
         "level": level_name,
         "logger": record.get("name", "omoai"),
@@ -80,15 +81,34 @@ def flat_json_serializer(record: Dict[str, Any]) -> str:
 class JSONFormatter(logging.Formatter):
     """Stdlib logging formatter that emits flat JSON lines with extras."""
 
-    DEFAULT_KEYS = {
-        "name", "msg", "args", "levelname", "levelno", "pathname", "filename", "module",
-        "exc_info", "exc_text", "stack_info", "lineno", "funcName", "created", "msecs",
-        "relativeCreated", "thread", "threadName", "processName", "process",
+    DEFAULT_KEYS: ClassVar[set[str]] = {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        data: Dict[str, Any] = {
-            "timestamp": datetime.utcfromtimestamp(record.created).isoformat(timespec="milliseconds"),
+        data: dict[str, Any] = {
+            "timestamp": datetime.utcfromtimestamp(record.created).isoformat(
+                timespec="milliseconds"
+            ),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -98,7 +118,7 @@ class JSONFormatter(logging.Formatter):
         }
 
         # Capture extras: any non-default attributes on the record
-        extras: Dict[str, Any] = {}
+        extras: dict[str, Any] = {}
         for k, v in record.__dict__.items():
             if k not in self.DEFAULT_KEYS and not k.startswith("_"):
                 extras[k] = v
@@ -130,7 +150,7 @@ class StructuredFormatter(logging.Formatter):
         logger_name = record.name
         for prefix in ("src.", "omoai."):
             if logger_name.startswith(prefix):
-                logger_name = logger_name[len(prefix):]
+                logger_name = logger_name[len(prefix) :]
         location = f"{getattr(record, 'module', '')}:{getattr(record, 'funcName', '')}:{getattr(record, 'lineno', '')}"
         base = f"{level} | {logger_name} | {location} - {record.getMessage()}"
 

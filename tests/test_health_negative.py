@@ -1,11 +1,11 @@
-import pytest
 from litestar.testing import TestClient
 
 
 def test_health_unhealthy_when_ffmpeg_missing(monkeypatch):
-    from omoai.api.app import create_app
     import subprocess
+
     import omoai.api.health as health
+    from omoai.api.app import create_app
 
     def fake_run(cmd, *args, **kwargs):
         # Simulate failure only for ffmpeg -version
@@ -23,4 +23,3 @@ def test_health_unhealthy_when_ffmpeg_missing(monkeypatch):
         data = resp.json()
         assert data.get("status") == "unhealthy"
         assert data.get("details", {}).get("ffmpeg") == "unavailable"
-

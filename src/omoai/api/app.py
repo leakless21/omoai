@@ -1,18 +1,18 @@
-import uvicorn
-import os
 import logging
+import os
+
+import uvicorn
 from litestar import Litestar
 from litestar.exceptions import HTTPException
 from litestar.response import Response
-from pathlib import Path
 
-from omoai.config.schemas import get_config
-from omoai.api.main_controller import MainController
-from omoai.api.preprocess_controller import PreprocessController
 from omoai.api.asr_controller import ASRController
-from omoai.api.postprocess_controller import PostprocessController
-from omoai.api.health import health_check
 from omoai.api.exceptions import AudioProcessingException
+from omoai.api.health import health_check
+from omoai.api.main_controller import MainController
+from omoai.api.postprocess_controller import PostprocessController
+from omoai.api.preprocess_controller import PreprocessController
+from omoai.config.schemas import get_config
 from omoai.logging_system.logger import setup_logging
 
 
@@ -21,7 +21,9 @@ def global_exception_handler(request, exc):
     logger = logging.getLogger(__name__)
 
     # Basic request context (best-effort)
-    req_path = str(getattr(getattr(request, "url", None), "path", getattr(request, "url", "")))
+    req_path = str(
+        getattr(getattr(request, "url", None), "path", getattr(request, "url", ""))
+    )
     method = getattr(request, "method", "")
 
     if isinstance(exc, AudioProcessingException):
@@ -76,18 +78,26 @@ def create_app() -> Litestar:
     config = get_config()
     # Configure the unified logging system once, using config.yaml
     setup_logging()
-    
+
     return Litestar(
-        route_handlers=[MainController, PreprocessController, ASRController, PostprocessController, health_check],
+        route_handlers=[
+            MainController,
+            PreprocessController,
+            ASRController,
+            PostprocessController,
+            health_check,
+        ],
         on_startup=[],
         # Use unified stdlib logging configured by setup_logging()
         logging_config=None,
-        request_max_body_size=config.api.max_body_size_mb * 1024 * 1024,  # Convert MB to bytes,
+        request_max_body_size=config.api.max_body_size_mb
+        * 1024
+        * 1024,  # Convert MB to bytes,
         exception_handlers={
             Exception: global_exception_handler,
             AudioProcessingException: global_exception_handler,
-            HTTPException: global_exception_handler
-        }
+            HTTPException: global_exception_handler,
+        },
     )
 
 
@@ -102,6 +112,7 @@ def main():
         reload_excludes=[".venv/*"],
         workers=int(os.environ.get("UVICORN_WORKERS", 1)),
     )
+
 
 if __name__ == "__main__":
     main()

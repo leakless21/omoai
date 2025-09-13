@@ -6,25 +6,27 @@ This stub provides a minimal API surface expected by tests:
 - preload_all_models()
 - get_model_status()
 """
+
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, Optional
 import threading
+from typing import Any, ClassVar
 
 
 class ModelSingletons:
     """Thread-safe singleton container for model-like objects."""
-    _instance: ClassVar[Optional["ModelSingletons"]] = None
+
+    _instance: ClassVar[ModelSingletons | None] = None
     _class_lock: ClassVar[threading.Lock] = threading.Lock()
 
     # Instance attributes (declared for type checkers)
     _init_lock: threading.Lock
     _initialized: bool
-    _asr_model: Optional[Any]
-    _punctuation_processor: Optional[Any]
-    _summarization_processor: Optional[Any]
+    _asr_model: Any | None
+    _punctuation_processor: Any | None
+    _summarization_processor: Any | None
 
-    def __new__(cls) -> "ModelSingletons":
+    def __new__(cls) -> ModelSingletons:
         with cls._class_lock:
             if cls._instance is None:
                 instance = super().__new__(cls)
@@ -53,12 +55,12 @@ def get_summarization_processor():
     return ModelSingletons()._summarization_processor
 
 
-def preload_all_models() -> Dict[str, bool]:
+def preload_all_models() -> dict[str, bool]:
     """Simulate loading models; tests may patch this to inject failures."""
     return {"asr": True, "punctuation": True, "summarization": True}
 
 
-def get_model_status() -> Dict[str, Any]:
+def get_model_status() -> dict[str, Any]:
     s = ModelSingletons()
     return {
         "asr_loaded": s._asr_model is not None,
@@ -71,8 +73,8 @@ def get_model_status() -> Dict[str, Any]:
 __all__ = [
     "ModelSingletons",
     "get_asr_model",
+    "get_model_status",
     "get_punctuation_processor",
     "get_summarization_processor",
     "preload_all_models",
-    "get_model_status",
 ]

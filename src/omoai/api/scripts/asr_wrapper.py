@@ -1,22 +1,23 @@
 """ASR script wrapper ensuring correct working directory and command structure.
 
-On non‑zero exit codes, raises AudioProcessingException with a detailed message
+On non-zero exit codes, raises AudioProcessingException with a detailed message
 including return code, stdout and stderr. This aligns wrapper behavior with
 tests that call the wrapper directly.
 """
+
 from __future__ import annotations
 
-import sys
 import subprocess
+import sys
 from pathlib import Path
-from typing import Optional, Union
+
 from omoai.api.exceptions import AudioProcessingException
 
 
 def run_asr_script(
-    audio_path: Union[str, Path],
-    output_path: Union[str, Path],
-    config_path: Optional[Union[str, Path]] = None,
+    audio_path: str | Path,
+    output_path: str | Path,
+    config_path: str | Path | None = None,
 ) -> None:
     """
     Invoke the top-level ASR script as a module with cwd set to project root.
@@ -26,7 +27,15 @@ def run_asr_script(
     """
     audio_path = str(audio_path)
     output_path = str(output_path)
-    cmd = [sys.executable, "-m", "scripts.asr", "--audio", audio_path, "--out", output_path]
+    cmd = [
+        sys.executable,
+        "-m",
+        "scripts.asr",
+        "--audio",
+        audio_path,
+        "--out",
+        output_path,
+    ]
     if config_path:
         cmd.extend(["--config", str(config_path)])
 

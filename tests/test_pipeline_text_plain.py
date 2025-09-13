@@ -6,7 +6,6 @@ from litestar.testing import TestClient
 async def test_pipeline_text_plain_response(monkeypatch):
     from omoai.api.app import create_app
     from omoai.api.models import PipelineResponse
-    from types import SimpleNamespace
 
     async def fake_run_full_pipeline(data, params):
         return PipelineResponse(
@@ -16,12 +15,16 @@ async def test_pipeline_text_plain_response(monkeypatch):
         )
 
     import omoai.api.main_controller as mc
+
     monkeypatch.setattr(mc, "run_full_pipeline", fake_run_full_pipeline)
 
     app = create_app()
     with TestClient(app=app) as client:
         # Provide a small file to satisfy multipart form
-        resp = client.post("/pipeline?formats=text", files={"audio_file": ("a.wav", b"123", "audio/wav")})
+        resp = client.post(
+            "/pipeline?formats=text",
+            files={"audio_file": ("a.wav", b"123", "audio/wav")},
+        )
         assert resp.status_code == 200 or resp.status_code == 201
         assert resp.headers.get("content-type", "").startswith("text/plain")
         body = resp.text
@@ -44,11 +47,15 @@ async def test_pipeline_text_plain_return_raw(monkeypatch):
         )
 
     import omoai.api.main_controller as mc
+
     monkeypatch.setattr(mc, "run_full_pipeline", fake_run_full_pipeline)
 
     app = create_app()
     with TestClient(app=app) as client:
-        resp = client.post("/pipeline?formats=text&return_summary_raw=true", files={"audio_file": ("a.wav", b"123", "audio/wav")})
+        resp = client.post(
+            "/pipeline?formats=text&return_summary_raw=true",
+            files={"audio_file": ("a.wav", b"123", "audio/wav")},
+        )
         assert resp.status_code == 200 or resp.status_code == 201
         assert resp.headers.get("content-type", "").startswith("text/plain")
         body = resp.text

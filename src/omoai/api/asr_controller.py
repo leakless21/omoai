@@ -2,7 +2,6 @@ from litestar import Controller, post
 from litestar.datastructures import State
 
 from omoai.api.models import ASRRequest, ASRResponse
-
 from omoai.api.services import asr_service
 
 

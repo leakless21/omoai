@@ -1,8 +1,8 @@
-from pathlib import Path
 import json
+from pathlib import Path
 
-from omoai.logging_system.logger import setup_logging, get_logger
 from omoai.logging_system.config import LoggingConfig
+from omoai.logging_system.logger import get_logger, setup_logging
 
 
 def test_structured_logging_to_file(tmp_path: Path) -> None:
@@ -31,4 +31,3 @@ def test_structured_logging_to_file(tmp_path: Path) -> None:
     assert obj.get("level")
     assert obj.get("timestamp")
     assert obj.get("extra", {}).get("component") == "test"
-

@@ -30,12 +30,15 @@ Enhancements (parsing robustness):
 - Title-only case no longer incorrectly infers abstract from the single labeled line.
 
 """
+
 from __future__ import annotations
 
 import os
 import re
 import unicodedata
-from typing import Any, Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
+
 
 def join_punctuated_segments(
     segments: Sequence[dict],
@@ -49,8 +52,8 @@ def join_punctuated_segments(
     - Inserts two newlines when the gap between previous end and current start >= paragraph_gap_seconds.
     - Otherwise joins with join_separator.
     """
-    parts: List[str] = []
-    prev_end: Optional[float] = None
+    parts: list[str] = []
+    prev_end: float | None = None
     for seg in segments:
         # parse times robustly from str/float/int
         try:
@@ -62,9 +65,7 @@ def join_punctuated_segments(
         except Exception:
             end = start
 
-        text = (
-            str(seg.get("text_punct") or seg.get("text") or "").strip()
-        )
+        text = str(seg.get("text_punct") or seg.get("text") or "").strip()
         if not text:
             prev_end = end
             continue
@@ -90,6 +91,7 @@ def join_punctuated_segments(
 # ---------------------------------------------------------------------------
 # Unicode / diacritic helpers (used only for header detection)
 # ---------------------------------------------------------------------------
+
 
 def _nfc(s: str) -> str:
     return unicodedata.normalize("NFC", s)
@@ -118,7 +120,8 @@ def _norm_header(s: str) -> str:
 # Time parsing
 # ---------------------------------------------------------------------------
 
-def _parse_time_to_seconds(ts: Any) -> Optional[float]:
+
+def _parse_time_to_seconds(ts: Any) -> float | None:
     """
     Parse flexible timestamp formats into seconds (float).
 
@@ -190,6 +193,7 @@ def _parse_time_to_seconds(ts: Any) -> Optional[float]:
 # Overlap de-duplication
 # ---------------------------------------------------------------------------
 
+
 def _dedup_overlap(prev: str, nxt: str, max_tokens: int = 4) -> str:
     """
     Remove duplicated token overlap at boundary:
@@ -234,13 +238,14 @@ _CANON_POINTS_HEADERS = {
     "main points",
 }
 
+
 def _is_points_header(line: str) -> bool:
     norm = _norm_header(line)
     norm = re.sub(r"[:\-]\s*$", "", norm).strip()
     return norm in _CANON_POINTS_HEADERS
 
 
-def _parse_vietnamese_labeled_text(text: str) -> Optional[Dict[str, Any]]:
+def _parse_vietnamese_labeled_text(text: str) -> dict[str, Any] | None:
     """
     Parse structured Vietnamese/English labeled summary blocks.
 
@@ -264,7 +269,7 @@ def _parse_vietnamese_labeled_text(text: str) -> Optional[Dict[str, Any]]:
 
     title: str = ""
     abstract: str = ""
-    points: List[str] = []
+    points: list[str] = []
     points_mode = False
 
     debug = bool(os.environ.get("OMOAI_PARSE_DEBUG"))
@@ -282,13 +287,15 @@ def _parse_vietnamese_labeled_text(text: str) -> Optional[Dict[str, Any]]:
         return None
 
     # Pre-compute a diacritic-stripped lower version for header heuristic fallback
-    norm_lines = [_norm_header(l) for l in original_lines]
+    norm_lines = [_norm_header(line) for line in original_lines]
 
     for idx, line in enumerate(original_lines):
         line_nfc = _nfc(line)
         norm = norm_lines[idx]
 
-        dbg(f"[LINE {idx}] raw='{line}' norm='{norm}' mode={'POINTS' if points_mode else 'SCAN'}")
+        dbg(
+            f"[LINE {idx}] raw='{line}' norm='{norm}' mode={'POINTS' if points_mode else 'SCAN'}"
+        )
 
         if not title:
             m = match_any(_LABEL_TITLE_PATTERNS, line_nfc)
@@ -306,11 +313,17 @@ def _parse_vietnamese_labeled_text(text: str) -> Optional[Dict[str, Any]]:
 
         # Enter points mode if header OR heuristic 'diem' + 'chinh' both present (fallback)
         if not points_mode:
-            header_match = match_any(_LABEL_POINTS_PATTERNS, line_nfc) or _is_points_header(line_nfc)
-            heuristic = ("diem" in norm and "chinh" in norm) or ("main" in norm and "points" in norm)
+            header_match = match_any(
+                _LABEL_POINTS_PATTERNS, line_nfc
+            ) or _is_points_header(line_nfc)
+            heuristic = ("diem" in norm and "chinh" in norm) or (
+                "main" in norm and "points" in norm
+            )
             if header_match or heuristic:
                 points_mode = True
-                dbg(f"  -> Points header detected (header_match={bool(header_match)} heuristic={heuristic})")
+                dbg(
+                    f"  -> Points header detected (header_match={bool(header_match)} heuristic={heuristic})"
+                )
                 continue
         else:
             bullet_m = re.match(r"^\s*-\s+(.+)", line_nfc)
@@ -324,8 +337,12 @@ def _parse_vietnamese_labeled_text(text: str) -> Optional[Dict[str, Any]]:
                 dbg("  -> Blank inside points block (ignored)")
                 continue
             # If a new header appears, terminate points mode
-            if (match_any(_LABEL_TITLE_PATTERNS + _LABEL_ABSTRACT_PATTERNS + _LABEL_POINTS_PATTERNS, line_nfc)
-                    or _is_points_header(line_nfc)):
+            if match_any(
+                _LABEL_TITLE_PATTERNS
+                + _LABEL_ABSTRACT_PATTERNS
+                + _LABEL_POINTS_PATTERNS,
+                line_nfc,
+            ) or _is_points_header(line_nfc):
                 points_mode = False
                 dbg("  -> Points block terminated by new header")
                 # do not 'continue' so that new header could be processed in next loop iteration
@@ -338,11 +355,9 @@ def _parse_vietnamese_labeled_text(text: str) -> Optional[Dict[str, Any]]:
 
     # Abstract fallback logic
     if not abstract:
-        lines_no_blank = [l for l in original_lines if l.strip()]
+        lines_no_blank = [line for line in original_lines if line.strip()]
         single_line_only_title = (
-            title
-            and len(lines_no_blank) == 1
-            and norm_lines[0].startswith("tieu de:")
+            title and len(lines_no_blank) == 1 and norm_lines[0].startswith("tieu de:")
         )
         if not single_line_only_title:
             para_candidates = [p.strip() for p in raw.split("\n\n") if p.strip()]
@@ -370,8 +385,8 @@ def _parse_vietnamese_labeled_text(text: str) -> Optional[Dict[str, Any]]:
 
 
 __all__ = [
-    "_parse_time_to_seconds",
     "_dedup_overlap",
+    "_parse_time_to_seconds",
     "_parse_vietnamese_labeled_text",
     "join_punctuated_segments",
 ]

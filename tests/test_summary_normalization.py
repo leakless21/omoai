@@ -1,6 +1,3 @@
-import pytest
-
-
 def test_normalize_summary_from_dict_bullets_and_abstract():
     from omoai.api.services import _normalize_summary
 
@@ -22,11 +19,7 @@ def test_normalize_summary_from_labeled_text_vi():
     from omoai.api.services import _normalize_summary
 
     text = (
-        "Tiêu đề: Demo\n"
-        "Tóm tắt: Đây là phần tóm tắt.\n"
-        "Điểm chính:\n"
-        "- Mục 1\n"
-        "- Mục 2\n"
+        "Tiêu đề: Demo\nTóm tắt: Đây là phần tóm tắt.\nĐiểm chính:\n- Mục 1\n- Mục 2\n"
     )
 
     out = _normalize_summary(text)
