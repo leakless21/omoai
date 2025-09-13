@@ -3,7 +3,15 @@ name: CI
 on:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
   workflow_dispatch:
     inputs:
       run_full:
@@ -11,10 +19,22 @@ on:
         required: false
         default: 'false'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit-fast:
     name: Unit tests (CPU, fast)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ '3.11', '3.12' ]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,33 +42,43 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
 
       - name: Install system deps
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Cache pip
+      - name: Cache uv cache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-uv-
 
-      - name: Install minimal deps
+      - name: Install deps with uv
         run: |
-          chmod +x scripts/ci-install.sh
-          ./scripts/ci-install.sh
+          python -m pip install -U pip wheel setuptools
+          python -m pip install uv
+          uv sync --group ci --locked || uv sync --group ci
+          uv pip install -e .
 
       - name: Run tests with coverage
         env:
           OMOAI_CI_RUN_FULL: ${{ github.event.inputs.run_full == 'true' && '1' || '0' }}
           OMOAI_CI_COVERAGE: '1'
+          PYTEST_ARGS: '-n auto --junitxml=junit.xml'
         run: |
           chmod +x scripts/test.sh
-          ./scripts/test.sh
+          uv run ./scripts/test.sh
+
+      - name: Upload JUnit test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ matrix.python-version }}
+          path: junit.xml
+        if: always()
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
@@ -67,6 +97,7 @@ jobs:
   api-smoke:
     name: API smoke (uvicorn /health)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,14 +112,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg curl
 
-      - name: Install minimal deps
+      - name: Cache uv cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install deps with uv
         run: |
-          chmod +x scripts/ci-install.sh
-          ./scripts/ci-install.sh
+          python -m pip install -U pip wheel setuptools
+          python -m pip install uv
+          uv sync --locked || uv sync
+          uv pip install -e .
 
       - name: Start API and check health
         run: |
-          nohup python -m uvicorn omoai.api.app:create_app --factory --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          nohup uv run python -m uvicorn omoai.api.app:create_app --factory --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
           for i in {1..20}; do
             if curl -sf http://127.0.0.1:8000/health > /dev/null; then
               echo "Health OK"; break; fi; sleep 1; done
@@ -105,6 +146,7 @@ jobs:
   asr-smoke:
     name: ASR smoke (real decode)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout with LFS
         uses: actions/checkout@v4
@@ -121,10 +163,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install minimal deps
+      - name: Cache uv cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install deps with uv
         run: |
-          chmod +x scripts/ci-install.sh
-          ./scripts/ci-install.sh
+          python -m pip install -U pip wheel setuptools
+          python -m pip install uv
+          uv sync --group ci --group asr --locked || uv sync --group ci --group asr
+          uv pip install -e .
+          # Ensure CPU wheels for torch/torchaudio to avoid CUDA in CI
+          uv pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.7.1' 'torchaudio==2.7.1'
 
       - name: Check checkpoint presence
         id: chk
@@ -138,7 +193,40 @@ jobs:
       - name: Run ASR smoke test
         if: steps.chk.outputs.found == 'true'
         run: |
-          python -m pytest -q tests/test_asr_config_fix.py::test_asr_script_with_valid_config
+          uv run python -m pytest -q tests/test_asr_config_fix.py::test_asr_script_with_valid_config
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache uv cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-uv-
+
+      - name: Install deps with uv
+        run: |
+          python -m pip install -U pip wheel setuptools
+          python -m pip install uv
+          uv sync --locked || uv sync
+          # Ensure ruff is available (also declared in optional dev deps)
+          uv pip install 'ruff==0.13.0'
+
+      - name: Run ruff
+        run: |
+          uv run ruff check .
 
       - name: Skip note (checkpoint missing)
         if: steps.chk.outputs.found != 'true'
