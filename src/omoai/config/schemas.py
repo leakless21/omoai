@@ -460,6 +460,7 @@ class APIDefaultsConfig(BaseModel):
     include_quality_metrics: bool | None = None
     include_diffs: bool | None = None
     return_summary_raw: bool | None = None
+    include_vad: bool | None = None
 
 
 class OutputConfig(BaseModel):

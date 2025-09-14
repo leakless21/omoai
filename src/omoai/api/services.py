@@ -599,6 +599,20 @@ async def _run_full_pipeline_script(
                             final_obj.get("summary_raw_text", "")
                         ) or None
 
+                    # Include VAD metadata when requested and available
+                    try:
+                        if (
+                            output_params
+                            and getattr(output_params, "include_vad", None)
+                            and isinstance(final_obj.get("metadata"), dict)
+                            and isinstance(final_obj["metadata"].get("vad"), dict)
+                        ):
+                            api_json_for_save["metadata"] = {
+                                "vad": final_obj["metadata"]["vad"]
+                            }
+                    except Exception:
+                        pass
+
                 except Exception:
                     # Fallback to raw final_obj if shaping fails
                     api_json_for_save = final_obj
@@ -811,6 +825,19 @@ async def _run_full_pipeline_script(
         except Exception:
             pass
 
+        # Optional metadata.vad passthrough
+        meta_out = None
+        try:
+            if (
+                output_params
+                and getattr(output_params, "include_vad", None)
+                and isinstance(final_obj.get("metadata"), dict)
+                and isinstance(final_obj["metadata"].get("vad"), dict)
+            ):
+                meta_out = {"vad": final_obj["metadata"]["vad"]}
+        except Exception:
+            meta_out = None
+
         response_obj = PipelineResponse(
             summary=filtered_summary,
             segments=filtered_segments,
@@ -822,6 +849,7 @@ async def _run_full_pipeline_script(
                 if getattr(output_params, "return_summary_raw", None)
                 else None
             ),
+            metadata=meta_out,
         )
         return (response_obj, raw_transcript)
 
@@ -830,6 +858,19 @@ async def _run_full_pipeline_script(
 
     # Normalize and return bullets-only summary even when no output_params provided
     norm2 = _normalize_summary(final_obj.get("summary", {}) or {})
+
+    # Optional metadata.vad passthrough (only when caller requested include_vad)
+    meta_out2 = None
+    try:
+        if (
+            output_params
+            and getattr(output_params, "include_vad", None)
+            and isinstance(final_obj.get("metadata"), dict)
+            and isinstance(final_obj["metadata"].get("vad"), dict)
+        ):
+            meta_out2 = {"vad": final_obj["metadata"]["vad"]}
+    except Exception:
+        meta_out2 = None
 
     response_obj = PipelineResponse(
         summary={
@@ -844,6 +885,7 @@ async def _run_full_pipeline_script(
         summary_raw_text=(str(final_obj.get("summary_raw_text", "")) or None)
         if (output_params and getattr(output_params, "return_summary_raw", None))
         else None,
+        metadata=meta_out2,
     )
 
     # Cleanup request-scoped temp folder if configured

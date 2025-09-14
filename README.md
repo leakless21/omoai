@@ -12,12 +12,14 @@ A production-ready pipeline to transcribe and summarize long-form audio (e.g., p
 - **Config-driven**: Single `config.yaml` controls paths, ASR, LLM, API, and outputs.
 - **Outputs**: Always writes `final.json`; optionally writes transcript and summary text files when enabled in config.
 - **CLI & REST API**: Run locally or as a web service.
+- **Optional VAD pre‑segmentation**: Silero/WebRTC VAD to skip silence and cap decode windows for faster long‑audio ASR.
 
 ## Architecture
 
 1. **Preprocess**: Convert input audio to 16kHz mono PCM16 WAV (ffmpeg).
-2. **ASR**: Transcribe with Chunkformer, produce segments and raw transcript (`asr.json`).
-3. **Post-process**: LLM adds punctuation and generates summary; write `final.json` and optional text files.
+2. **[Optional] VAD pre‑segmentation**: Silero/WebRTC VAD splits out speech windows (e.g., 30s) with small overlaps.
+3. **ASR**: Transcribe with Chunkformer, produce segments and raw transcript (`asr.json`).
+4. **Post-process**: LLM adds punctuation and generates summary; write `final.json` and optional text files.
 
 See details in `docs/architecture/index.md`.
 
@@ -138,6 +140,31 @@ api:
   temp_dir: /tmp
   cleanup_temp_files: true
   enable_progress_output: true
+
+# Optional: Voice Activity Detection (VAD)
+vad:
+  enabled: false
+  method: silero        # silero | webrtc | pyannote
+  chunk_size: 30        # max speech window length (s)
+  overlap_s: 0.4        # window overlap (s)
+  vad_onset: 0.50
+  vad_offset: 0.363
+  min_speech_s: 0.30
+  min_silence_s: 0.30
+  device: auto
+  webrtc:
+    mode: 2
+    frame_ms: 20
+  silero:
+    threshold: 0.50
+    min_speech_duration_ms: 250
+    min_silence_duration_ms: 100
+    max_speech_duration_s: 30
+    speech_pad_ms: 30
+
+# To include VAD info in saved JSON, set API defaults or use include_vad in query params:
+# api.api_defaults.include_vad: true
+# /v1/pipeline?...&include_vad=true
 ```
 
 - Use `OMOAI_CONFIG=/abs/path/to/config.yaml` to override config location at runtime.
@@ -219,6 +246,27 @@ curl -X POST 'http://localhost:8000/v1/pipeline' \
 # Structured JSON with options
 curl -X POST 'http://localhost:8000/v1/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \
   -F 'audio_file=@data/input/audio.mp3'
+
+# Include VAD metadata (if available) in the saved final.json (and optionally in response shaping):
+curl -X POST 'http://localhost:8000/v1/pipeline?include_vad=true' \
+  -F 'audio_file=@data/input/audio.mp3'
+
+## VAD Tuning
+- Long, clean speech (lectures, podcasts): keep defaults.
+  - silero: threshold ≈ 0.50; min_speech_duration_ms ≈ 250; min_silence_duration_ms ≈ 100
+  - webrtc: mode 2; frame_ms 20
+  - chunk_size: 30–45; overlap_s: 0.4
+- Soft speakers / distant mic: reduce sensitivity threshold and increase overlap
+  - silero: threshold 0.45; min_speech_duration_ms 200–250
+  - webrtc: mode 1–2
+  - overlap_s: 0.5
+- Noisy/phone audio: increase sensitivity threshold
+  - silero: threshold 0.55; min_silence_duration_ms 150–200
+  - webrtc: mode 3
+  - consider chunk_size 20–30 to avoid drift
+Tips:
+- Monitor `speech_ratio` and windows count in ASR logs ([VAD] line) to gauge effect.
+- If segments look clipped at boundaries, increase `overlap_s` slightly (e.g., 0.5) and use post de-dup.
 
 # Include raw LLM summary in JSON
 curl -X POST 'http://localhost:8000/v1/pipeline?return_summary_raw=true' \

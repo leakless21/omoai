@@ -55,10 +55,11 @@ The existing flow remains. We add optional stages and normalize times:
 - Run a pyannote diarization pipeline to assign speaker labels to segments; if words exist, assign
   speakers at the word level too. Optionally return speaker embeddings.
 
-4) VAD Pre‑Segmentation (optional; later)
-- Use VAD (e.g., Silero or pyannote) to skip long silences and cap decode windows before ASR.
-- Start simple: exclude silence regions or bound maximum window duration; preserve existing ASR
-  batching model.
+4) VAD Pre‑Segmentation (optional; integrated)
+- Use VAD (Silero by default; WebRTC available; Pyannote later) to skip long silences and cap
+  decode windows before ASR. This reduces wasted compute and stabilizes long inputs.
+- We bound windows by `chunk_size` (e.g., 30s) and apply a small overlap (e.g., 0.4s) to protect
+  boundary context; segments are offset back to global time.
 
 ### Data Flow Summary
 
@@ -123,9 +124,10 @@ def diarize_segments(
   - Optionally return embeddings keyed by speaker.
   - No‑op cleanly when not configured or token missing.
 
-### VAD (optional, later)
-- Thin wrapper around silero/pyannote VAD to generate speech windows. Use to exclude silence and
-  bound maximum window length before ASR. Merge text safely across boundaries (avoid duplication).
+### VAD (optional; integrated)
+- Thin wrapper around Silero (PyPI) or WebRTC VAD to generate speech windows. Use to exclude
+  silence and bound maximum window length before ASR. Merge text safely across boundaries (avoid
+  duplication). Pyannote VAD can be added later behind an optional flag.
 
 ## Configuration Additions
 
@@ -149,10 +151,28 @@ diarization:
 
 vad:
   enabled: false
-  method: silero       # or pyannote
-  chunk_size: 30
-  vad_onset: 0.5
+  method: silero       # silero | webrtc | pyannote
+  chunk_size: 30       # max speech window (s)
+  overlap_s: 0.4       # window overlap (s)
+  vad_onset: 0.50
   vad_offset: 0.363
+  webrtc:
+    mode: 2
+    frame_ms: 20
+    start_hangover_frames: 3
+    end_hangover_frames: 5
+  silero:
+    threshold: 0.50
+    min_speech_duration_ms: 250
+    min_silence_duration_ms: 100
+    max_speech_duration_s: 30
+    speech_pad_ms: 30
+    window_size_samples: 512
+  pyannote:
+    min_duration_on: 0.1
+    min_duration_off: 0.1
+    pad_onset: 0.0
+    pad_offset: 0.0
 ```
 
 ## API Behavior and Outputs
@@ -178,7 +198,7 @@ vad:
 
 - Lazy‑load models only when the corresponding feature is enabled.
 - Use `device: auto` to prefer GPU when available; run on CPU otherwise.
-- For long audio, consider enabling VAD to constrain compute; measure before making default.
+- For long audio, enabling VAD often improves throughput substantially; defaults mirror WhisperX.
 - On any alignment/diarization failure: log and fall back silently to keep the pipeline robust.
 
 ## Dependency Strategy
@@ -229,4 +249,3 @@ This plan brings three practical improvements inspired by WhisperX—precise tim
 and (optionally) VAD—without adopting WhisperX code. The design preserves OmoAI’s existing ASR and
 LLM strengths, adds value behind safe configuration toggles, and keeps the system robust and
 maintainable.
-

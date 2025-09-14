@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from litestar.datastructures import UploadFile
 from pydantic import BaseModel, ConfigDict
@@ -46,6 +46,8 @@ class OutputFormatParams(BaseModel):
     include_diffs: bool | None = None
     # Simple raw summary option
     return_summary_raw: bool | None = None
+    # Include VAD metadata (if available) in the saved or returned JSON
+    include_vad: bool | None = None
 
 
 # Response Models
@@ -86,6 +88,8 @@ class PipelineResponse(BaseModel):
     diffs: HumanReadableDiff | None = None
     # Optional raw LLM summary text (unparsed), included only on request
     summary_raw_text: str | None = None
+    # Optional metadata (e.g., VAD) included only when requested
+    metadata: dict[str, Any] | None = None
 
 
 class PreprocessResponse(BaseModel):

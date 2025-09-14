@@ -96,6 +96,7 @@ Execute the complete audio processing pipeline in a single request.
 | `summary_lang`            | string  | `vi`                                     | Summary language code                                             |
 | `include_quality_metrics` | boolean | `false`                                  | Include quality metrics in response                               |
 | `include_diffs`           | boolean | `false`                                  | Include human-readable diffs                                      |
+| `include_vad`             | boolean | `false`                                  | Include VAD metadata (if available) in response and saved JSON    |
 
 #### Example Request
 
@@ -103,6 +104,12 @@ Execute the complete audio processing pipeline in a single request.
 curl -X POST "http://localhost:8000/v1/pipeline?summary=both&include=segments" \
   -F "audio_file=@/path/to/audio.mp3" \
   -H "Accept: application/json"
+```
+
+```bash
+# Include VAD metadata (if available)
+curl -X POST "http://localhost:8000/v1/pipeline?include_vad=true" \
+  -F "audio_file=@/path/to/audio.mp3"
 ```
 
 #### Response
@@ -146,6 +153,16 @@ The `summary` field can be either a dictionary (containing "abstract" and/or "bu
     "punctuated_text": "Punctuated text.",
     "diff_output": "diff visualization",
     "alignment_summary": "alignment details"
+  },
+  "metadata": {
+    "vad": {
+      "enabled": true,
+      "method": "silero",
+      "chunk_size": 30,
+      "overlap_s": 0.4,
+      "windows": 24,
+      "speech_ratio": 0.78
+    }
   }
 }
 ```

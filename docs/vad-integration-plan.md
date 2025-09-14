@@ -12,8 +12,8 @@ Goals
 
 Scope & Assumptions
 - Use in the current offline, file‑based ASR flow (no streaming mic input).
-- Initial VAD options: `webrtc` (lightweight) and `silero` (small Torch model). Pyannote VAD
-  can be considered later behind a stricter optional flag due to heavier deps.
+- VAD options: `silero` (default, PyPI) and `webrtc` (lightweight). Pyannote VAD can be
+  considered later behind a stricter optional flag due to heavier deps.
 - Maintain existing ChunkFormer ASR code and outputs. Add VAD as a pre‑ASR stage.
 
 References (WhisperX)
@@ -48,7 +48,7 @@ Configuration Additions (config.yaml)
 ```yaml
 vad:
   enabled: false
-  method: webrtc        # webrtc | silero | pyannote (later)
+  method: silero        # silero | webrtc | pyannote
   chunk_size: 30        # max speech window length in seconds
   overlap_s: 0.4        # window overlap to protect context
   vad_onset: 0.50       # speech activation threshold (method‑specific)
@@ -57,6 +57,18 @@ vad:
   min_silence_s: 0.30   # fill gaps shorter than this (smoothing)
   device: auto          # for Torch‑based methods (silero/pyannote)
   hf_token_env: HUGGINGFACE_TOKEN  # for pyannote if enabled later
+  webrtc:
+    mode: 2
+    frame_ms: 20
+    start_hangover_frames: 3
+    end_hangover_frames: 5
+  silero:
+    threshold: 0.50
+    min_speech_duration_ms: 250
+    min_silence_duration_ms: 100
+    max_speech_duration_s: 30
+    speech_pad_ms: 30
+    window_size_samples: 512
 ```
 
 New Modules
@@ -72,12 +84,17 @@ New Modules
     def detect_speech(
         audio_path: str | Path,
         *,
-        method: VADMethod = "webrtc",
+        method: VADMethod = "silero",
         sample_rate: int = 16000,
         vad_onset: float = 0.5,
         vad_offset: float = 0.363,
         min_speech_s: float = 0.30,
         min_silence_s: float = 0.30,
+        chunk_size: float = 30.0,
+        webrtc_mode: int = 2,
+        frame_ms: int = 20,
+        speech_pad_ms: int = 30,
+        window_size_samples: int = 512,
         device: str = "auto",
     ) -> list[tuple[float, float]]:
         """Return (start_s, end_s) speech intervals. Never raise; return [] on failure."""
@@ -91,7 +108,7 @@ New Modules
     ```
   - Methods:
     - `webrtc`: implement with `webrtcvad` over 20 ms frames, with simple hysteresis and smoothing.
-    - `silero`: optional adapter using torch hub `snakers4/silero-vad` (guarded import).
+    - `silero`: prefer PyPI `silero-vad`; fallback to torch.hub loader if needed.
     - `pyannote`: later; would require local model files or HF token.
   - Guarantees: results are monotonic, within `[0, duration]`, gaps and micro‑segments smoothed
     per config.
@@ -239,7 +256,23 @@ Proven Settings (WhisperX‑Style) Adapted to ChunkFormer
   - False positives/noise: increase `vad_onset` (e.g., 0.55) and/or increase `min_speech_s`.
   - Long monologues truncation: increase `chunk_size` to 45–60; keep `overlap_s` at 0.4.
 
+VAD Tuning (practical)
+- Clean talks / lectures
+  - silero: threshold ≈ 0.50; min_speech_duration_ms ≈ 250; min_silence_duration_ms ≈ 100
+  - webrtc: mode 2; frame_ms 20
+  - chunk_size: 30–45; overlap_s: 0.4
+- Soft speech / distant mic
+  - silero: threshold 0.45; min_speech_duration_ms 200–250
+  - webrtc: mode 1–2
+  - overlap_s: 0.5
+- Noisy calls / background noise
+  - silero: threshold 0.55; min_silence_duration_ms 150–200
+  - webrtc: mode 3
+  - chunk_size: 20–30 to limit drift on difficult audio
+Tips
+- Watch ASR logs: `[VAD] enabled method=... windows=... speech_ratio=...` to assess impact.
+- If boundary truncation appears, raise `overlap_s` (e.g., 0.5) and rely on de‑duplication.
+
 - Why this maps cleanly to ChunkFormer
   - The ASR loop already handles incremental processing with caches; per‑window execution simply resets them at safe boundaries.
   - The existing CTC silence logic continues to refine segmentation inside each window; VAD prevents wasted compute on silence and caps window lengths.
-

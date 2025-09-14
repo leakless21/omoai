@@ -46,6 +46,7 @@ class MainController(Controller):
         summary_bullets_max: int | None = None,
         summary_lang: str | None = None,
         return_summary_raw: bool | None = None,
+        include_vad: bool | None = None,
         # Quality metrics and diff options
         include_quality_metrics: bool | None = None,
         include_diffs: bool | None = None,
@@ -91,6 +92,7 @@ class MainController(Controller):
             include_quality_metrics=include_quality_metrics,
             include_diffs=include_diffs,
             return_summary_raw=return_summary_raw,
+            include_vad=include_vad,
         )
 
         # Apply defaults from configuration when not provided via query
@@ -133,6 +135,11 @@ class MainController(Controller):
                         and getattr(api_def, "return_summary_raw", None) is not None
                     ):
                         output_params.return_summary_raw = bool(api_def.return_summary_raw)  # type: ignore[assignment]
+                    if (
+                        output_params.include_vad is None
+                        and getattr(api_def, "include_vad", None) is not None
+                    ):
+                        output_params.include_vad = bool(api_def.include_vad)  # type: ignore[assignment]
                 # Additionally, support legacy summary defaults from output.summary
                 if sum_cfg:
                     if output_params.summary is None and getattr(sum_cfg, "mode", None):
