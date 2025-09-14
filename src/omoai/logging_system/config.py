@@ -411,6 +411,11 @@ def _configure_third_party_loggers(config: LoggingConfig) -> None:
         "uvicorn.access",
         "uvicorn.error",
         "litestar.middleware",
+        # vLLM loggers (not previously included): ensure visibility when debug_mode is enabled
+        "vllm",
+        "vllm.engine",
+        "vllm.worker",
+        "vllm.model_executor",
     ]
 
     for logger_name in noisy_loggers:
@@ -419,6 +424,16 @@ def _configure_third_party_loggers(config: LoggingConfig) -> None:
             logger.setLevel(logging.DEBUG)
         else:
             logger.setLevel(logging.WARNING)
+
+    # Ensure vLLM loggers propagate to root so our sinks capture them
+    vllm_loggers = [
+        "vllm",
+        "vllm.engine",
+        "vllm.worker",
+        "vllm.model_executor",
+    ]
+    for name in vllm_loggers:
+        logging.getLogger(name).propagate = True
 
     # Special handling for specific loggers
     if not config.debug_mode:

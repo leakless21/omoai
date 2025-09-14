@@ -356,6 +356,23 @@ class SummaryOutputConfig(BaseModel):
     file: str = Field(default="summary.md")
 
 
+class APIDefaultsConfig(BaseModel):
+    """Defaults for API response shaping when query params are not provided.
+
+    Mirrors OutputFormatParams so admin can configure default includes.
+    """
+
+    formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None
+    include: list[Literal["transcript_raw", "transcript_punct", "segments"]] | None = None
+    ts: Literal["none", "s", "ms", "clock"] | None = None
+    summary: Literal["bullets", "abstract", "both", "none"] | None = None
+    summary_bullets_max: int | None = None
+    summary_lang: str | None = None
+    include_quality_metrics: bool | None = None
+    include_diffs: bool | None = None
+    return_summary_raw: bool | None = None
+
+
 class OutputConfig(BaseModel):
     """Top-level output configuration.
 
@@ -384,6 +401,9 @@ class OutputConfig(BaseModel):
         default_factory=lambda: ["final_json"],
     )
     api_output_dir: Path | None = Field(default=None)
+
+    # API default response shaping (no query params)
+    api_defaults: APIDefaultsConfig = Field(default_factory=APIDefaultsConfig)
 
     @model_validator(mode="after")
     def validate_legacy_mapping(self) -> "OutputConfig":
@@ -434,9 +454,30 @@ class APIConfig(BaseModel):
         default=True,
         description="Automatically cleanup temporary files",
     )
+    # Runtime UX controls for subprocessed scripts (ASR, postprocess)
+    stream_subprocess_output: bool = Field(
+        default=False,
+        description="Stream child process stdout/stderr to the API terminal",
+    )
+    verbose_scripts: bool = Field(
+        default=False,
+        description="Pass --verbose to helper scripts for richer logs",
+    )
     enable_progress_output: bool = Field(
         default=False,  # SECURITY: Default to False for production
         description="Enable progress output (may leak information)",
+    )
+    # Response formatting / content negotiation
+    default_response_format: Literal["json", "text"] = Field(
+        default="json", description="Default response format when no explicit preference"
+    )
+    allow_accept_override: bool = Field(
+        default=True,
+        description="Allow Accept header (text/plain) to override default response",
+    )
+    allow_query_format_override: bool = Field(
+        default=True,
+        description="Allow query param formats=text to force text response",
     )
     health_check_dependencies: list[str] = Field(
         default_factory=lambda: ["ffmpeg", "config_file"],

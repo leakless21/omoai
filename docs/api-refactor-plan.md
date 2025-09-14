@@ -40,8 +40,8 @@ operational improvements for reliability, observability, and developer experienc
 
 5) Remove server‑side artifact side effects
 - Stop writing artifacts in response to query flags like `formats`.
-- Use content negotiation for `text/plain` (`Accept: text/plain`) or `?format=text` to return
-  inline content without server‑side writes.
+- Use content negotiation for `text/plain` (`Accept: text/plain`) to return inline content
+  without server‑side writes.
 - Optionally, add explicit artifact endpoints later if persistence is needed.
 
 6) Version routes and add request IDs
@@ -68,9 +68,7 @@ API contract:
 - “points” is removed entirely from models, payloads, writers, and docs.
 
 Ingestion/normalization:
-- Wherever upstream postprocess returns `points`, transform to `bullets` internally at the
-  service boundary.
-- Strip `points` before serializing responses; do not alias or duplicate.
+- Inputs are strict: API expects `bullets`. Upstream must emit `bullets`.
 
 File writers (SRT/VTT/MD):
 - Markdown generation reads `summary.bullets` only; remove any mapping from `points`.

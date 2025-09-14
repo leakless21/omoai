@@ -325,12 +325,12 @@ def _parse_structured_summary(text: str) -> dict:
     """
     Parse a multi-line structured summary string into a dict with keys:
     - title: str
-    - summary: str
-    - points: List[str]
+    - abstract: str
+    - bullets: List[str]
     Robustly handles different label names and bullet styles.
     """
     if not text:
-        return {"title": "", "summary": "", "points": []}
+        return {"title": "", "abstract": "", "bullets": []}
     lines = [line.rstrip() for line in text.splitlines()]
     title = ""
     abstract_lines: list[str] = []
@@ -392,16 +392,16 @@ def _parse_structured_summary(text: str) -> dict:
         title = candidate
 
     abstract = "\n".join([line for line in abstract_lines]).strip()
-    return {"title": title, "summary": abstract, "points": points}
+    return {"title": title, "abstract": abstract, "bullets": points}
 
 
 def summarize_text(llm: Any, text: str, system_prompt: str, temperature: float = 0.2, user_prompt: str | None = None) -> dict:
     """
     Call the LLM to summarize and parse the multi-line structured string into a dict.
-    Returns a dict with keys: title, summary, points.
+    Returns a dict with keys: title, abstract, bullets.
     """
     if not text:
-        return {"title": "", "summary": "", "points": []}
+        return {"title": "", "abstract": "", "bullets": []}
     system = system_prompt
     # Prepend user_prompt to the user content if provided
     if user_prompt:
@@ -1636,7 +1636,7 @@ def main() -> None:
                 "segments": segments,
                 # Without an LLM, pass through raw transcript; real punctuation requires vLLM
                 "transcript_punct": (asr.get("transcript_raw") or "") if isinstance(asr, dict) else "",
-                "summary": {"points": [], "abstract": ""},
+                "summary": {"bullets": [], "abstract": ""},
                 "metadata": {
                     **(asr.get("metadata", {}) if isinstance(asr, dict) else {}),
                     "llm_model_punctuation": p_model_id,
@@ -1834,7 +1834,7 @@ def main() -> None:
             f"[post] Quality metrics: coverage={punct_coverage:.4f}, density={punct_density:.4f}, marks={punct_marks}",
         )
         logger.info(
-            f"[post] Summary: points={len(summary.get('points', []))}, has_abstract={bool(summary.get('abstract'))}",
+            f"[post] Summary: bullets={len(summary.get('bullets', []))}, has_abstract={bool(summary.get('abstract'))}",
         )
 
     # Compose final output with enhanced metadata
@@ -2017,9 +2017,9 @@ def main() -> None:
                         )
                     tf_text = "\n\n".join(wrapped_paragraphs).strip()
                 tf.write(tf_text + "\n")
-            # summary plain text (render points + abstract)
+            # summary plain text (render bullets + abstract)
             summary = final.get("summary") or {}
-            points = summary.get("points") or []
+            points = summary.get("bullets") or []
             abstract = summary.get("abstract") or ""
             with open(base_dir / sf_name, "w", encoding="utf-8") as sf:
                 for p in points:

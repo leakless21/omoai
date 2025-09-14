@@ -10,6 +10,13 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+import os
+
+try:
+    # Prefer centralized config; fall back gracefully if unavailable
+    from omoai.config.schemas import get_config  # type: ignore
+except Exception:  # pragma: no cover - defensive import
+    get_config = None  # type: ignore
 
 from omoai.api.exceptions import AudioProcessingException
 
@@ -44,13 +51,34 @@ def run_asr_script(
     project_root = Path(__file__).resolve().parents[4]
 
     # Let CalledProcessError propagate to callers for test assertions
-    result = subprocess.run(
-        cmd,
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
-    )
+    # Optional: stream child output directly to this terminal based on config.yaml
+    stream = False
+    try:
+        if get_config is not None:
+            cfg = get_config()
+            stream = bool(getattr(cfg.api, "stream_subprocess_output", False))
+    except Exception:
+        stream = False
+    env = os.environ.copy()
+    if stream:
+        # Encourage unbuffered output from the child
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        result = subprocess.run(
+            cmd,
+            cwd=project_root,
+            text=True,
+            env=env,
+            timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
+        )
+    else:
+        result = subprocess.run(
+            cmd,
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
+        )
     if result.returncode != 0:
         # Provide detailed error context expected by tests
         message = (

@@ -55,8 +55,14 @@ api:
   # File handling
   temp_dir: "/tmp"
   cleanup_temp_files: true
-  # Progress output
-  enable_progress_output: true
+  # Script subprocess UX
+  stream_subprocess_output: true   # Stream ASR/postprocess stdout/stderr to server terminal
+  verbose_scripts: true            # Pass --verbose to helper scripts
+  enable_progress_output: true     # Enable tqdm progress bars in postprocess
+  # Response defaults and overrides
+  default_response_format: json   # json | text
+  allow_accept_override: true     # Accept: text/plain can force text
+  allow_query_format_override: true  # ?formats=text can force text
   # Health check configuration
   health_check_dependencies:
     - ffmpeg
@@ -105,22 +111,41 @@ output:
   # Valid formats: final_json, segments, transcripts, srt, vtt, md
   save_formats_on_api: ["final_json", "segments", "transcripts", "srt", "vtt", "md"]
   api_output_dir: "./data/output/api"
+
+  # Default API response content (applies when no query params are provided)
+  # These map to the `/v1/pipeline` OutputFormatParams
+  api_defaults:
+    include: ["transcript_punct"]    # choose from transcript_raw, transcript_punct, segments
+    ts: "clock"                       # none | s | ms | clock
+    summary: "both"                   # bullets | abstract | both | none
+    summary_bullets_max: 7
+    summary_lang: "vi"
+    include_quality_metrics: false
+    include_diffs: false
+    return_summary_raw: false
 ```
 
 Notes:
 
-- Scripts always write `final.json`.
+- Scripts and API both write `final.json` using the same canonical schema.
+- Canonical summary keys: `title`, `abstract`, `bullets` (no alias duplication).
 - When `write_separate_files: true` or when `formats` includes `text`/`md`, scripts also write human‑readable transcript and summary files using the configured filenames.
-- API persistence mirrors script outputs when `output.save_on_api: true`. It writes the formats requested in `output.save_formats_on_api` to per‑request folders under `output.api_output_dir`.
+- API persistence (when `output.save_on_api: true`) writes a JSON that matches the `/v1/pipeline` response schema to per‑request folders under `output.api_output_dir`.
 
 ### Summary defaults for API
 
-When the `/pipeline` query does not specify summary options, the API defaults to:
+When the `/pipeline` query does not specify options, the API uses `output.api_defaults`:
 
-- `output.summary.mode` → default for `summary` query
-- `output.summary.bullets_max` → default for `summary_bullets_max`
-- `output.summary.language` → default for `summary_lang`
+- `output.api_defaults.include` → default for which fields are returned
+- `output.api_defaults.ts` → default timestamp rendering
+- `output.api_defaults.summary` → default summary mode
+- `output.api_defaults.summary_bullets_max` → default bullets limit
+- `output.api_defaults.summary_lang` → default summary language
+- `output.api_defaults.include_quality_metrics` → include metrics by default
+- `output.api_defaults.include_diffs` → include human-readable diffs by default
+- `output.api_defaults.return_summary_raw` → include raw LLM summary text by default
 
+If `output.api_defaults` is not set for a given key, legacy fallbacks apply for summary via `output.summary`.
 ### Logging text file options
 
 In addition to JSONL logging, you can enable a human‑readable log file:
@@ -179,16 +204,21 @@ def service_function():
 
 ### API-Specific Parameters
 
-| Parameter                   | Default   | Description                              |
-| --------------------------- | --------- | ---------------------------------------- |
-| `host`                      | "0.0.0.0" | Server bind address                      |
-| `port`                      | 8000      | Server port                              |
-| `max_body_size_mb`          | 100       | Maximum request body size in MB          |
-| `request_timeout_seconds`   | 300       | Request timeout                          |
-| `temp_dir`                  | "/tmp"    | Temporary file directory                 |
-| `cleanup_temp_files`        | true      | Whether to clean up temp files           |
-| `enable_progress_output`    | true      | Show progress in terminal                |
-| `health_check_dependencies` | [list]    | Dependencies to check in health endpoint |
+| Parameter                     | Default   | Description                                |
+| ----------------------------- | --------- | ------------------------------------------ |
+| `host`                        | "0.0.0.0" | Server bind address                        |
+| `port`                        | 8000      | Server port                                |
+| `max_body_size_mb`            | 100       | Maximum request body size in MB            |
+| `request_timeout_seconds`     | 300       | Request timeout                            |
+| `temp_dir`                    | "/tmp"    | Temporary file directory                   |
+| `cleanup_temp_files`          | true      | Whether to clean up temp files             |
+| `stream_subprocess_output`    | false     | Stream child stdout/stderr to API terminal |
+| `verbose_scripts`             | false     | Pass --verbose to helper scripts           |
+| `enable_progress_output`      | false     | Show progress bars in postprocess          |
+| `default_response_format`     | "json"    | Default `/pipeline` response: json or text |
+| `allow_accept_override`       | true      | Allow `Accept: text/plain` to force text   |
+| `allow_query_format_override` | true      | Allow `?formats=text` to force text        |
+| `health_check_dependencies`   | [list]    | Dependencies to check in health endpoint   |
 
 ### Customization Examples
 
@@ -213,6 +243,15 @@ api:
   temp_dir: "./tmp" # Local temp directory
   enable_progress_output: true # Verbose output
 ```
+
+### Response Negotiation Behavior
+
+The `/v1/pipeline` endpoint determines response format using:
+
+- Config default: `api.default_response_format` (json/text)
+- Query override: if `api.allow_query_format_override` and `?formats=text` → text
+- Accept header: if `api.allow_accept_override` and `Accept` contains `text/plain` without also preferring JSON → text
+- Otherwise, JSON is returned.
 
 ## Running with uv
 

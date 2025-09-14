@@ -58,7 +58,7 @@ class PipelineResult(PipelineResponse):
 
 
 def _normalize_summary(raw_summary: Any) -> dict:
-    """Normalize summary into bullets-only schema (keep 'summary' alias for abstract)."""
+    """Normalize summary into canonical schema with title, abstract, bullets."""
     # If dict-like, coerce keys and shapes
     if isinstance(raw_summary, dict):
         title = (
@@ -73,13 +73,29 @@ def _normalize_summary(raw_summary: Any) -> dict:
             or raw_summary.get("Tóm tắt")
             or ""
         )
-        bullets = raw_summary.get("bullets") or raw_summary.get("points") or []
+        # Accept common aliases for bullet list
+        bullets = (
+            raw_summary.get("bullets")
+            or raw_summary.get("points")
+            or raw_summary.get("bullet_points")
+            or raw_summary.get("items")
+            or []
+        )
 
         # Coerce bullets that may arrive as a single string
         if isinstance(bullets, str):
-            bullets = [
-                p.lstrip("-").strip() for p in bullets.splitlines() if p.strip()
-            ]
+            import re as _re
+
+            out: list[str] = []
+            for line in bullets.splitlines():
+                m = _re.match(r"^\s*(?:[-*•‣–—]|\d+[\.)])\s+(.+)", line)
+                if m:
+                    out.append(m.group(1).strip())
+                else:
+                    s = line.strip()
+                    if s:
+                        out.append(s)
+            bullets = out
 
         # If the abstract contains labeled text, let core parser extract canonical parts
         if isinstance(abstract, str):
@@ -87,14 +103,12 @@ def _normalize_summary(raw_summary: Any) -> dict:
             if parsed:
                 return {
                     "title": parsed.get("title", "") or str(title).strip(),
-                    "summary": parsed.get("abstract", ""),
                     "abstract": parsed.get("abstract", ""),
                     "bullets": parsed.get("bullets", []) or list(bullets or []),
                 }
 
         return {
             "title": str(title).strip(),
-            "summary": str(abstract).strip(),
             "abstract": str(abstract).strip(),
             "bullets": list(bullets or []),
         }
@@ -105,12 +119,11 @@ def _normalize_summary(raw_summary: Any) -> dict:
         if parsed:
             return {
                 "title": parsed.get("title", ""),
-                "summary": parsed.get("abstract", ""),
                 "abstract": parsed.get("abstract", ""),
                 "bullets": parsed.get("bullets", []),
             }
     # Fallback
-    return {"title": "", "summary": "", "abstract": "", "bullets": []}
+    return {"title": "", "abstract": "", "bullets": []}
 
 
 # Script-based helper implementations
@@ -120,6 +133,7 @@ def run_preprocess_script(input_path, output_path):
     """Fallback preprocess implementation using ffmpeg directly."""
     import logging
     import subprocess
+    import os
 
     logger = logging.getLogger(__name__)
 
@@ -146,15 +160,42 @@ def run_preprocess_script(input_path, output_path):
             "output_path": str(output_path),
         },
     )
+    # Decide whether to stream ffmpeg output to the terminal based on config.yaml
+    stream = False
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        logger.info(
-            "Preprocess completed successfully",
-            extra={
-                "return_code": result.returncode,
-                "stdout": (result.stdout or "").strip(),
-            },
-        )
+        from omoai.config.schemas import get_config  # type: ignore
+
+        cfg = get_config()
+        stream = bool(getattr(cfg.api, "stream_subprocess_output", False))
+    except Exception:
+        stream = False
+
+    try:
+        if stream:
+            env = os.environ.copy()
+            # Encourage immediate flush from child process
+            env.setdefault("PYTHONUNBUFFERED", "1")
+            result = subprocess.run(
+                cmd,
+                check=True,
+                text=True,
+                env=env,
+            )
+            logger.info(
+                "Preprocess completed successfully",
+                extra={
+                    "return_code": result.returncode,
+                },
+            )
+        else:
+            result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+            logger.info(
+                "Preprocess completed successfully",
+                extra={
+                    "return_code": result.returncode,
+                    "stdout": (result.stdout or "").strip(),
+                },
+            )
     except subprocess.CalledProcessError as e:
         logger.error(
             "Preprocess failed",
@@ -505,11 +546,65 @@ async def _run_full_pipeline_script(
             # Which formats to write
             fmts = set(getattr(save_cfg, "save_formats_on_api", ["final_json"]))
 
-            # Write final JSON if requested
+            # Write final JSON if requested — mirror API response schema for consistency
             if "final_json" in fmts:
                 final_name = getattr(save_cfg, "final_json", "final.json")
+
+                # Build API-shaped JSON consistent with PipelineResponse
+                try:
+                    norm_save = _normalize_summary(final_obj.get("summary", {}) or {})
+                    summary_save = {
+                        "title": norm_save.get("title", ""),
+                        "abstract": norm_save.get("abstract", ""),
+                        "bullets": list(norm_save.get("bullets", [])),
+                    }
+                    segments_save = list(final_obj.get("segments", []) or [])
+                    transcript_punct_save = (
+                        str(final_obj.get("transcript_punct", "")) or None
+                    )
+
+                    if output_params and getattr(output_params, "include", None):
+                        inc = set(getattr(output_params, "include") or [])
+                        if "segments" not in inc:
+                            segments_save = []
+                        if "transcript_punct" not in inc:
+                            transcript_punct_save = None
+
+                    api_json_for_save: dict[str, Any] = {
+                        "summary": summary_save,
+                        "segments": segments_save,
+                    }
+                    if transcript_punct_save:
+                        api_json_for_save["transcript_punct"] = transcript_punct_save
+
+                    # Optional extras if requested
+                    if (
+                        output_params
+                        and getattr(output_params, "include_quality_metrics", None)
+                        and "quality_metrics" in final_obj
+                    ):
+                        api_json_for_save["quality_metrics"] = final_obj["quality_metrics"]
+                    if (
+                        output_params
+                        and getattr(output_params, "include_diffs", None)
+                        and "diffs" in final_obj
+                    ):
+                        api_json_for_save["diffs"] = final_obj["diffs"]
+                    if (
+                        output_params
+                        and getattr(output_params, "return_summary_raw", None)
+                        and final_obj.get("summary_raw_text")
+                    ):
+                        api_json_for_save["summary_raw_text"] = str(
+                            final_obj.get("summary_raw_text", "")
+                        ) or None
+
+                except Exception:
+                    # Fallback to raw final_obj if shaping fails
+                    api_json_for_save = final_obj
+
                 with open(out_dir / final_name, "w", encoding="utf-8") as wf:
-                    json.dump(final_obj, wf, ensure_ascii=False, indent=2)
+                    json.dump(api_json_for_save, wf, ensure_ascii=False, indent=2)
 
             # Write segments if requested
             if "segments" in fmts:
@@ -708,6 +803,14 @@ async def _run_full_pipeline_script(
             except Exception:
                 diffs = None
 
+        # Ensure no legacy 'summary' alias field is present in summary dict
+        try:
+            if isinstance(filtered_summary, dict) and "summary" in filtered_summary:
+                filtered_summary = dict(filtered_summary)
+                filtered_summary.pop("summary", None)
+        except Exception:
+            pass
+
         response_obj = PipelineResponse(
             summary=filtered_summary,
             segments=filtered_segments,
@@ -732,7 +835,6 @@ async def _run_full_pipeline_script(
         summary={
             "title": norm2.get("title", ""),
             "abstract": norm2.get("abstract", ""),
-            "summary": norm2.get("summary", ""),
             "bullets": list(norm2.get("bullets", [])),
         },
         segments=list(final_obj.get("segments", []) or []),
@@ -860,9 +962,14 @@ async def run_full_pipeline(
     else:
         response_obj = result_obj  # type: ignore[assignment]
         raw_transcript = getattr(result_obj, "transcript_raw", None)
-    # Surface raw transcript on the response for callers that don't use the tuple form
+    # Surface raw transcript only when explicitly included
     try:
-        if raw_transcript and getattr(response_obj, "transcript_raw", None) is None:
+        include_set = set(params.include) if (params and params.include) else set()
+        if (
+            raw_transcript
+            and getattr(response_obj, "transcript_raw", None) is None
+            and ("transcript_raw" in include_set)
+        ):
             response_obj.transcript_raw = raw_transcript  # type: ignore[attr-defined]
     except Exception:
         pass

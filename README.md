@@ -212,9 +212,9 @@ Endpoints:
 Examples:
 
 ```bash
-# Full pipeline (default plain text response with transcript + summary)
+# Full pipeline (default JSON response). Use Accept: text/plain to get text.
 curl -X POST 'http://localhost:8000/v1/pipeline' \
-  -F 'audio_file=@data/input/audio.mp3'
+  -F 'audio_file=@data/input/audio.mp3' 
 
 # Structured JSON with options
 curl -X POST 'http://localhost:8000/v1/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \
@@ -234,9 +234,13 @@ curl 'http://localhost:8000/v1/health'
 
 Notes:
 
-- When no query params are provided to `/v1/pipeline`, the server returns `text/plain` containing the punctuated transcript and summary for convenience.
-- With query params, the server returns structured JSON (`PipelineResponse`).
+- By default, `/v1/pipeline` returns structured JSON (`PipelineResponse`).
+- To receive plain text, either set `Accept: text/plain` or pass `?formats=text`.
 - When `return_summary_raw=true` is provided, responses include `summary_raw_text` (JSON) or return the raw summary in text mode.
+- Configurable defaults:
+  - `api.default_response_format`: `json` (default) or `text`
+  - `api.allow_accept_override`: if true, `Accept: text/plain` can force text
+  - `api.allow_query_format_override`: if true, `?formats=text` can force text
 - The `/v1/health` endpoint checks `ffmpeg`, configuration file availability, and the presence of script modules/wrappers used by the pipeline.
 - The `/v1/metrics` endpoint provides system-wide metrics.
 
@@ -277,7 +281,8 @@ curl 'http://localhost:8000/v1/jobs/{job_id}'
 
 ## Outputs
 
-- Always writes `final.json`.
+- Always writes `final.json` using a canonical schema shared by scripts and API responses.
+- Summary keys are unified: `title`, `abstract`, `bullets` (no `summary` alias).
 - When `output.write_separate_files: true` or when `output.formats` includes `text`/`md`, the postprocess script also writes human‑readable text files for the punctuated transcript and summary.
 - When `output.formats` includes `srt` or `vtt`, the postprocess script emits `transcript.srt` and/or `transcript.vtt` alongside `final.json` when `--auto-outdir` is used (API runs do not save extra files by default).
 - Structured output preferences live under the `output:` block in `config.yaml` (including `formats`, transcript/summary options, and `final_json` name). The scripts respect these settings and legacy keys for compatibility.
@@ -401,13 +406,13 @@ Khởi động server:
 uv run api
 ```
 
-Gửi yêu cầu toàn bộ pipeline:
+Gửi yêu cầu toàn bộ pipeline (mặc định trả JSON):
 
 ```bash
 curl -X POST 'http://localhost:8000/v1/pipeline' -F 'audio_file=@data/input/audio.mp3'
 ```
 
-Trả về mặc định là văn bản (`text/plain`). Để nhận JSON có cấu trúc và điều khiển đầu ra:
+Mặc định trả về JSON. Để nhận JSON có cấu trúc và điều khiển đầu ra:
 
 ```bash
 curl -X POST 'http://localhost:8000/v1/pipeline?include=segments&ts=clock&summary=both&summary_bullets_max=5' \

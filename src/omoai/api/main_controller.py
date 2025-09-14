@@ -5,6 +5,7 @@ from litestar import Controller, get, post
 from litestar.enums import RequestEncodingType
 from litestar.params import Body
 from litestar.response import Redirect, Response
+from starlette.requests import Request
 
 from omoai.api.models import OutputFormatParams, PipelineRequest, PipelineResponse
 from omoai.config.schemas import get_config
@@ -32,6 +33,7 @@ class MainController(Controller):
     @post("/pipeline")
     async def pipeline(
         self,
+        request: Request,
         data: Annotated[
             PipelineRequest, Body(media_type=RequestEncodingType.MULTI_PART)
         ],
@@ -96,19 +98,55 @@ class MainController(Controller):
             cfg = get_config()
             out_cfg = getattr(cfg, "output", None)
             sum_cfg = getattr(out_cfg, "summary", None)
-            if out_cfg and sum_cfg:
-                if output_params.summary is None and getattr(sum_cfg, "mode", None):
-                    output_params.summary = sum_cfg.mode  # type: ignore[assignment]
-                if (
-                    output_params.summary_bullets_max is None
-                    and getattr(sum_cfg, "bullets_max", None) is not None
-                ):
-                    output_params.summary_bullets_max = int(sum_cfg.bullets_max)  # type: ignore[assignment]
-                if (
-                    output_params.summary_lang is None
-                    and getattr(sum_cfg, "language", None)
-                ):
-                    output_params.summary_lang = str(sum_cfg.language)  # type: ignore[assignment]
+            api_def = getattr(out_cfg, "api_defaults", None)
+            # Prefer output.api_defaults if provided; fall back to output.summary for summary defaults
+            if out_cfg:
+                if api_def:
+                    # Set defaults only when not provided via query
+                    if output_params.formats is None and getattr(api_def, "formats", None) is not None:
+                        output_params.formats = list(getattr(api_def, "formats"))  # type: ignore[assignment]
+                    if output_params.include is None and getattr(api_def, "include", None) is not None:
+                        output_params.include = list(getattr(api_def, "include"))  # type: ignore[assignment]
+                    if output_params.ts is None and getattr(api_def, "ts", None) is not None:
+                        output_params.ts = api_def.ts  # type: ignore[assignment]
+                    if output_params.summary is None and getattr(api_def, "summary", None) is not None:
+                        output_params.summary = api_def.summary  # type: ignore[assignment]
+                    if (
+                        output_params.summary_bullets_max is None
+                        and getattr(api_def, "summary_bullets_max", None) is not None
+                    ):
+                        output_params.summary_bullets_max = int(api_def.summary_bullets_max)  # type: ignore[assignment]
+                    if output_params.summary_lang is None and getattr(api_def, "summary_lang", None) is not None:
+                        output_params.summary_lang = str(api_def.summary_lang)  # type: ignore[assignment]
+                    if (
+                        output_params.include_quality_metrics is None
+                        and getattr(api_def, "include_quality_metrics", None) is not None
+                    ):
+                        output_params.include_quality_metrics = bool(api_def.include_quality_metrics)  # type: ignore[assignment]
+                    if (
+                        output_params.include_diffs is None
+                        and getattr(api_def, "include_diffs", None) is not None
+                    ):
+                        output_params.include_diffs = bool(api_def.include_diffs)  # type: ignore[assignment]
+                    if (
+                        output_params.return_summary_raw is None
+                        and getattr(api_def, "return_summary_raw", None) is not None
+                    ):
+                        output_params.return_summary_raw = bool(api_def.return_summary_raw)  # type: ignore[assignment]
+                # Additionally, support legacy summary defaults from output.summary
+                if sum_cfg:
+                    if output_params.summary is None and getattr(sum_cfg, "mode", None):
+                        output_params.summary = sum_cfg.mode  # type: ignore[assignment]
+                    if (
+                        output_params.summary_bullets_max is None
+                        and getattr(sum_cfg, "bullets_max", None) is not None
+                    ):
+                        output_params.summary_bullets_max = int(sum_cfg.bullets_max)  # type: ignore[assignment]
+                    if (
+                        output_params.summary_lang is None
+                        and getattr(sum_cfg, "language", None)
+                    ):
+                        output_params.summary_lang = str(sum_cfg.language)  # type: ignore[assignment]
         except Exception:
             pass
 
@@ -123,6 +161,10 @@ class MainController(Controller):
                 f"output_params.summary_bullets_max: {output_params.summary_bullets_max}"
             )
             logger.info(f"output_params.include: {output_params.include}")
+            logger.info(
+                f"output_params.include_quality_metrics: {output_params.include_quality_metrics}, "
+                f"include_diffs: {output_params.include_diffs}, return_summary_raw: {output_params.return_summary_raw}"
+            )
 
         # Run pipeline or enqueue async job
         params = output_params if output_params else None
@@ -160,8 +202,37 @@ class MainController(Controller):
         # Synchronous inline processing
         result = await run_full_pipeline(data, params)
 
-        # For backward compatibility, handle text/plain response when specifically requested
-        if formats == ["text"] or (formats and "text" in formats and len(formats) == 1):
+        # Content negotiation with configurable defaults
+        accept = (request.headers.get("accept") or "").lower()
+        api_cfg = None
+        try:
+            api_cfg = getattr(get_config(), "api", None)
+        except Exception:
+            api_cfg = None
+
+        # Prefer JSON if client indicates application/json, */*, or no Accept header
+        prefer_json = (
+            ("application/json" in accept)
+            or ("*/*" in accept)
+            or (not accept)
+        )
+
+        # Start with default from config
+        default_fmt = getattr(api_cfg, "default_response_format", "json")
+        wants_text = str(default_fmt).lower() == "text"
+
+        # Query override (formats=text)
+        allow_query = bool(getattr(api_cfg, "allow_query_format_override", True))
+        if allow_query and formats and "text" in formats:
+            wants_text = True
+
+        # Accept header override
+        allow_accept = bool(getattr(api_cfg, "allow_accept_override", True))
+        if allow_accept:
+            if ("text/plain" in accept) and not prefer_json:
+                wants_text = True
+
+        if wants_text:
             # If raw summary requested and available, return only the raw LLM output
             if return_summary_raw and getattr(result, "summary_raw_text", None):
                 raw_text = result.summary_raw_text or ""

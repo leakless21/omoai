@@ -47,6 +47,34 @@ def run_postprocess_script(
     if config_path:
         cmd.extend(["--config", str(config_path)])
 
+    # Load centralized config to drive runtime toggles from config.yaml
+    cfg = None
+    try:
+        from omoai.config.schemas import get_config  # type: ignore
+
+        cfg = get_config()
+    except Exception:
+        cfg = None
+
+    if cfg is not None:
+        try:
+            if getattr(cfg.api, "enable_progress_output", False):
+                cmd.append("--progress")
+            # Verbose: via explicit toggle or debug logging mode
+            want_verbose = bool(getattr(cfg.api, "verbose_scripts", False))
+            try:
+                log_cfg = getattr(cfg, "logging", None)
+                if log_cfg and getattr(log_cfg, "debug_mode", False):
+                    want_verbose = True
+                elif log_cfg and str(getattr(log_cfg, "level", "")).upper() == "DEBUG":
+                    want_verbose = True
+            except Exception:
+                pass
+            if want_verbose:
+                cmd.append("--verbose")
+        except Exception:
+            pass
+
     # Project root: src/omoai/api/scripts/postprocess_wrapper.py -> .../src -> project root
     project_root = Path(__file__).resolve().parents[4]
 
@@ -67,14 +95,32 @@ def run_postprocess_script(
         f"CUDA environment: CUDA_VISIBLE_DEVICES={env.get('CUDA_VISIBLE_DEVICES', 'not set')}"
     )
 
-    result = subprocess.run(
-        cmd,
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
-    )
+    # Optional: stream child output directly to this terminal based on config.yaml
+    want_stream = False
+    try:
+        if cfg is not None:
+            want_stream = bool(getattr(cfg.api, "stream_subprocess_output", False))
+    except Exception:
+        want_stream = False
+    if want_stream:
+        # Encourage unbuffered output from the child
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        result = subprocess.run(
+            cmd,
+            cwd=project_root,
+            text=True,
+            env=env,
+            timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
+        )
+    else:
+        result = subprocess.run(
+            cmd,
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout_seconds if timeout_seconds and timeout_seconds > 0 else None,
+        )
     if result.returncode != 0:
         raise RuntimeError(
             f"Postprocess script failed with return code {result.returncode}\n"

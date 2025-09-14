@@ -1,5 +1,16 @@
-# Enhanced OMOAI Configuration with New Output Options
-# This configuration demonstrates the new plugin-based output system
+# OMOAI Configuration
+#
+# Quick reference for common choices:
+# - output.formats: [json, text, srt, vtt, md]
+# - output.api_defaults.include: [transcript_raw, transcript_punct, segments]
+# - output.api_defaults.summary: bullets | abstract | both | none
+# - output.api_defaults.ts: none | s | ms | clock
+# - api.default_response_format: json | text
+#
+# Tips:
+# - Keep transcript_raw excluded by default for privacy; add via include only when needed.
+# - Set api.default_response_format: json for machine consumers; use ?formats=text or Accept: text/plain for human-readable text.
+# - To persist API outputs on disk, set output.save_on_api: true. The saved final.json matches the API response schema.
 
 paths:
   chunkformer_dir: ./src/chunkformer
@@ -171,7 +182,13 @@ output:
   wrap_width: 0 # Legacy - maps to transcript.wrap_width
 
   # New structured configuration
-  formats: ["json", "text", "srt", "vtt", "md"] # All available formats
+  # Formats to generate on disk (script outputs). Valid values:
+  # - json: always recommended; canonical data
+  # - text: human-readable transcript/summary text files
+  # - srt: SubRip subtitle file (requires segments)
+  # - vtt: WebVTT subtitle file (requires segments)
+  # - md: Markdown summaries/transcripts
+  formats: ["json", "text", "srt", "vtt", "md"]
 
   # Transcript output configuration
   transcript:
@@ -191,8 +208,9 @@ output:
 
   # Summary output configuration
   summary:
-    # Defaults applied by API when no query params are provided
-    mode: "both" # "bullets", "abstract", "both", "none"
+    # Default presentation for summaries written to disk (and fallback for API when api_defaults not set)
+    # Valid values: bullets | abstract | both | none
+    mode: "both"
     bullets_max: 7 # Maximum number of bullet points (API default)
     abstract_max_chars: 1000 # Currently unused by runtime
     language: "vi" # Summary language (passed through)
@@ -201,18 +219,41 @@ output:
   # Final output filename
   final_json: "final.json"
 
-  # API-related output controls (new)
-  # save_on_api: if true, the pipeline API will also persist final JSON to disk
-  # default is false to avoid implicit persistence from API calls
+  # API-related output controls
+  # If true, the API will persist per-request outputs to disk (final.json and optionally others)
   save_on_api: true
 
-  # when save_on_api is true, which files to write (final_json, segments, transcripts)
+  # When save_on_api is true, which files to write. Valid values:
+  # - final_json: canonical API-shaped JSON
+  # - segments: segment list JSON
+  # - transcripts: transcript.raw.txt / transcript.punct.txt (if available)
+  # - srt, vtt, md: timed text and Markdown (require corresponding data)
   save_formats_on_api:
     - final_json
     - segments
 
   # directory to save API outputs (overrides paths.out_dir when set)
   api_output_dir: "./data/output/api"
+
+  # Default response content (applies when no query params are given)
+  # Mirrors OutputFormatParams and lets you choose defaults for API responses
+  # include: choose which fields to include by default. Valid values:
+  #   - transcript_raw (sensitive; prefer excluding unless needed)
+  #   - transcript_punct
+  #   - segments
+  # summary: bullets | abstract | both | none
+  # ts: none | s | ms | clock  (controls timestamp formatting when returning timed formats)
+  # include_quality_metrics: include WER/CER/PER metrics if available
+  # include_diffs: include human-readable diffs if available
+  # return_summary_raw: include raw LLM summary text if available
+  api_defaults:
+    include: ["transcript_punct"]  # e.g., omit segments by default
+    summary: "both"                 # bullets | abstract | both | none
+    summary_bullets_max: 7
+    summary_lang: "vi"
+    include_quality_metrics: true
+    include_diffs: false
+    return_summary_raw: true
 
 api:
   host: "0.0.0.0"
@@ -221,7 +262,17 @@ api:
   request_timeout_seconds: 1800 # 30 minutes to match ASR batch duration
   temp_dir: "/tmp"
   cleanup_temp_files: true
+  # Stream subprocess logs and enable verbose script output
+  stream_subprocess_output: true
+  verbose_scripts: true
   enable_progress_output: true
+  # Default response behavior for /v1/pipeline
+  # - default_response_format: json | text
+  # - allow_accept_override: if true, Accept: text/plain (without JSON) can switch to text
+  # - allow_query_format_override: if true, ?formats=text can switch to text
+  default_response_format: json
+  allow_accept_override: true
+  allow_query_format_override: true
   # service_mode removed; script-based pipeline is always used
   health_check_dependencies:
     - ffmpeg

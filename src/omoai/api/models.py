@@ -73,7 +73,6 @@ class PipelineResponse(BaseModel):
     # Summary is a structured dict with the shape:
     # {
     #   "title": str,
-    #   "summary": str,     # alias of abstract for compatibility
     #   "abstract": str,
     #   "bullets": List[str]
     # }
