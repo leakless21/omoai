@@ -1272,6 +1272,20 @@ export OMOAI_API__PORT=8080
 # Logging (from logging subsystem)
 export OMOAI_LOG_LEVEL=DEBUG
 export OMOAI_LOG_FORMAT=structured
+export OMOAI_LOGGING__LEVEL=INFO   # Nested env wins over OMOAI_LOG_* when both set
+```
+
+Prompt overrides via file references:
+
+```bash
+# Large prompts can be provided with @file: to read content from disk
+export OMOAI_PUNCTUATION__SYSTEM_PROMPT='@file:/absolute/path/punc_prompt.txt'
+export OMOAI_SUMMARIZATION__SYSTEM_PROMPT='@file:/absolute/path/sum_prompt.txt'
+```
+
+Precedence notes:
+- Environment overrides win over YAML.
+- When both are used, nested `OMOAI_LOGGING__*` overrides legacy `OMOAI_LOG_*` for logging.
 ```
 
 Notes:

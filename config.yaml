@@ -264,3 +264,32 @@ logging:
   enqueue: true
   debug_mode: true
   quiet_mode: false
+
+vad:
+  enabled: true
+  method: silero        # silero | webrtc | pyannote
+  chunk_size: 30        # seconds, max speech window length (WhisperX default)
+  overlap_s: 0.4        # seconds, window overlap to protect context
+  vad_onset: 0.50       # WhisperX default
+  vad_offset: 0.363     # WhisperX default
+  min_speech_s: 0.30    # remove very short segments (s)
+  min_silence_s: 0.30   # fill small gaps (s)
+  device: auto          # for torch-based methods
+  hf_token_env: HUGGINGFACE_TOKEN
+  webrtc:
+    mode: 2             # 0..3 (2 balanced per common practice)
+    frame_ms: 20        # 10/20/30 ms frames
+    start_hangover_frames: 3
+    end_hangover_frames: 5
+  silero:
+    threshold: 0.50
+    min_speech_duration_ms: 250
+    min_silence_duration_ms: 100
+    max_speech_duration_s: 30
+    speech_pad_ms: 30
+    window_size_samples: 512
+  pyannote:
+    min_duration_on: 0.1
+    min_duration_off: 0.1
+    pad_onset: 0.0
+    pad_offset: 0.0

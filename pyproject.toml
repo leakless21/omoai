@@ -25,6 +25,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "nvidia-ml-py>=13.580.82",
     "psutil>=7.0.0",
+    "silero-vad>=6.0.0",
+    "webrtcvad>=2.0.10",
 ]
 
 
