@@ -16,6 +16,7 @@ This document provides a comprehensive reference for the OmoAI RESTful API, incl
 - [Response Formats](#response-formats)
 - [Error Handling](#error-handling)
 - [Rate Limiting](#rate-limiting)
+- [Environment Overrides](#environment-overrides)
 
 ## Overview
 
@@ -46,7 +47,7 @@ Example persistence config:
 ```yaml
 output:
   save_on_api: true
-  save_formats_on_api: ["final_json", "segments", "transcripts", "srt", "vtt", "md"]
+  save_formats_on_api: ["final_json", "segments", "transcripts"]
   api_output_dir: "./data/output/api"
 ```
 
@@ -1229,3 +1230,50 @@ Here is an example of a response from the `GET /pipeline/status/{task_id}` endpo
 ```
 
 This indicates that the task is currently in the ASR stage.
+
+## Environment Overrides
+
+You can override any config value in `config.yaml` using environment variables.
+
+- Prefix: `OMOAI_`
+- Nested delimiter: `__` (double underscore)
+- Case-insensitive
+
+Examples:
+
+```bash
+# Paths
+export OMOAI_PATHS__OUT_DIR=./data/output/custom
+export OMOAI_PATHS__CHUNKFORMER_DIR=./src/chunkformer
+
+# LLM base settings
+export OMOAI_LLM__MODEL_ID=cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit
+export OMOAI_LLM__MAX_MODEL_LEN=16000
+
+# ASR runtime
+export OMOAI_ASR__DEVICE=cuda
+export OMOAI_ASR__TOTAL_BATCH_DURATION_S=5400
+
+# Punctuation
+export OMOAI_PUNCTUATION__AUTO_MARGIN_TOKENS=192
+
+# Summarization
+export OMOAI_SUMMARIZATION__MAP_REDUCE=true
+
+# Output & API defaults
+export OMOAI_OUTPUT__SAVE_ON_API=true
+export OMOAI_OUTPUT__API_DEFAULTS__SUMMARY=both
+export OMOAI_OUTPUT__API_DEFAULTS__INCLUDE='["transcript_punct", "segments"]'
+
+# API server
+export OMOAI_API__HOST=127.0.0.1
+export OMOAI_API__PORT=8080
+
+# Logging (from logging subsystem)
+export OMOAI_LOG_LEVEL=DEBUG
+export OMOAI_LOG_FORMAT=structured
+```
+
+Notes:
+- Arrays should be passed as JSON strings where applicable (e.g., `INCLUDE='["segments"]'`).
+- For production, consider `OMOAI_API__HOST=127.0.0.1` unless you intend to expose externally.
