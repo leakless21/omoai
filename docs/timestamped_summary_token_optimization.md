@@ -557,3 +557,100 @@ timestamped_summary:
 - Measure token savings vs. per-word prompt; expect 5–20× reduction.
 
 
+## 12) Map-reduce and maximizing token utilization
+
+### 12.1 What “map-reduce” means here
+
+- Map: Split the long input into chunks that each fit the model’s context window (after subtracting a small output buffer). Run the same prompt on each chunk to produce partial results (local topics/markers).
+- Reduce: Combine the partial results into a single final output: sort by time, deduplicate near-duplicates, optionally re-summarize if needed. For very long inputs you can reduce hierarchically (chunk → group → final).
+
+We already do this for `summarization` when needed; this section specifies the same approach for `timestamped_summary` with sentence-level inputs.
+
+### 12.2 Fully utilizing the token limit (packing strategy)
+
+Goal: maximize input tokens per request while keeping a minimal, safe buffer for outputs and prompt overhead.
+
+- Budgeting formula (already in code):
+
+```python
+# Make the prompt as large as possible while reserving a small output buffer
+def _compute_input_token_limit(max_model_len: int, prompt_overhead_tokens: int = 64, output_margin_tokens: int = 128) -> int:
+    return max(256, int(max_model_len) - int(prompt_overhead_tokens) - int(output_margin_tokens))
+```
+
+- Recommended settings for “tight packing”:
+  - In `config.yaml` (both `summarization` and `timestamped_summary`):
+    - `auto_switch_ratio: 0.98–0.99` (closer to 1.00 increases risk of overflow)
+    - `auto_margin_tokens: 96–128`
+    - `map_reduce: true` for long inputs so each chunk fills the window
+  - In code where you set per-chunk `max_tokens` for outputs, keep them small (e.g., 128–256) to free most of the window for inputs.
+
+- Chunk building (tokenizer-driven):
+  - Prefer sentence/segment lines to minimize token waste.
+  - Use tokenizer counts to accumulate sentences until reaching `input_limit`.
+  - Avoid or minimize overlap between chunks unless strictly needed.
+
+Example chunk packer for sentence-lines:
+
+```python
+def pack_sentence_lines_to_budget(llm, lines_text: str, max_model_len: int, out_margin: int = 128, overhead: int = 64) -> list[str]:
+    tokenizer = get_tokenizer(llm)
+    input_limit = max(256, int(max_model_len) - overhead - out_margin)
+    # Split by lines to preserve sentence boundaries
+    lines = [ln for ln in lines_text.splitlines() if ln.strip()]
+    chunks: list[str] = []
+    cur: list[str] = []
+    cur_tokens = 0
+    for ln in lines:
+        t = len(tokenizer.encode(ln))
+        if cur_tokens and cur_tokens + t > input_limit:
+            chunks.append("\n".join(cur))
+            cur, cur_tokens = [], 0
+        cur.append(ln)
+        cur_tokens += t
+    if cur:
+        chunks.append("\n".join(cur))
+    return chunks
+```
+
+Then for each chunk you can set `max_tokens = out_margin` (or a fixed small value like 192) and call `generate_chat`/`generate_chat_batch`.
+
+### 12.3 Configuration templates
+
+Balanced safety (recommended):
+
+```yaml
+summarization:
+  map_reduce: true
+  auto_switch_ratio: 0.98
+  auto_margin_tokens: 96
+
+timestamped_summary:
+  map_reduce: true
+  auto_switch_ratio: 0.98
+  auto_margin_tokens: 96
+```
+
+Aggressive packing (use only if stable and monitored):
+
+```yaml
+summarization:
+  map_reduce: true
+  auto_switch_ratio: 0.99
+  auto_margin_tokens: 80
+
+timestamped_summary:
+  map_reduce: true
+  auto_switch_ratio: 0.99
+  auto_margin_tokens: 80
+```
+
+Note: Pushing closer to 1.00 or shrinking margins increases risk of truncation or generation errors. Prefer 0.98 with ~96–128 margin in production.
+
+### 12.4 Monitoring and safeguards
+
+- Log per-chunk token counts: input tokens, reserved output margin, and `max_tokens` actually set.
+- Detect truncation signals (e.g., unusually short outputs or model stop reasons) and auto-retry with a slightly larger margin when needed.
+- Consider adding a runtime clamp: `input_limit = max(256, min(input_limit, max_model_len - 256))` as a last-resort guard.
+
+

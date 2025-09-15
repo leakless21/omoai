@@ -456,6 +456,79 @@ def prepare_timestamp_context(segments: list[dict]) -> str:
     return "\n".join(timestamped_transcript)
 
 
+def prepare_sentence_timestamp_lines(segments: list[dict]) -> str:
+    """Create sentence-level timestamped lines from ASR segments.
+    
+    Format: [HH:MM:SS] sentence_text
+    Uses first word start if available; otherwise segment start.
+    Dramatically reduces tokens vs. per-word format.
+    """
+    lines: list[str] = []
+    for seg in segments:
+        words = seg.get("word_segments") or seg.get("words") or []
+        if words:
+            first = next((w for w in words if "start" in w), None)
+            start_s = float(first["start"]) if first else float(seg.get("start", 0.0) or 0.0)
+        else:
+            start_s = float(seg.get("start", 0.0) or 0.0)
+
+        # Prefer punctuated if available, else raw
+        text = (seg.get("text_punct") or seg.get("text_raw") or seg.get("text") or "").strip()
+        if not text:
+            continue
+
+        hh = int(start_s // 3600)
+        mm = int((start_s % 3600) // 60)
+        ss = int(start_s % 60)
+        ts = f"[{hh:02d}:{mm:02d}:{ss:02d}]"
+        lines.append(f"{ts} {text}")
+    return "\n".join(lines)
+
+
+def pack_sentence_lines_to_budget(llm: Any, lines_text: str, max_model_len: int, out_margin: int = 128, overhead: int = 64) -> list[str]:
+    """Pack sentence lines into chunks that fit token budget.
+    
+    Returns list of chunk strings, each fitting within the input limit.
+    """
+    if not lines_text.strip():
+        return []
+    
+    try:
+        tokenizer = get_tokenizer(llm)
+        input_limit = max(256, int(max_model_len) - overhead - out_margin)
+        
+        # Split by lines to preserve sentence boundaries
+        lines = [ln for ln in lines_text.splitlines() if ln.strip()]
+        if not lines:
+            return []
+            
+        chunks: list[str] = []
+        cur: list[str] = []
+        cur_tokens = 0
+        
+        for ln in lines:
+            try:
+                t = len(tokenizer.encode(ln))
+            except Exception:
+                # Fallback estimation if tokenization fails
+                t = max(1, len(ln) // 3)
+                
+            if cur_tokens and cur_tokens + t > input_limit:
+                if cur:
+                    chunks.append("\n".join(cur))
+                cur, cur_tokens = [], 0
+            cur.append(ln)
+            cur_tokens += t
+            
+        if cur:
+            chunks.append("\n".join(cur))
+        return chunks
+    except Exception:
+        # Fallback: split by character count
+        approx_chars = max(500, int(max_model_len * 3))  # rough char-to-token ratio
+        return split_text_into_chunks(lines_text, max_chars=approx_chars, overlap_sentences=0)
+
+
 def generate_timestamped_summary(llm: Any, timestamped_transcript: str, system_prompt: str) -> str:
     """
     Generate a summary with timestamps from the LLM.
@@ -468,7 +541,13 @@ def generate_timestamped_summary(llm: Any, timestamped_transcript: str, system_p
 def parse_llm_response(response_text: str, include_raw: bool = False) -> dict:
     """
     Parse the LLM response to extract the summary and timestamps.
-    Optionally include the raw response text.
+
+    Supports common formats where each line is:
+        [HH:MM:SS] Topic text
+    or
+        [MM:SS] Topic text
+
+    Falls back to a more permissive parser if lines are not per-timestamp.
     """
     import re
 
@@ -479,13 +558,12 @@ def parse_llm_response(response_text: str, include_raw: bool = False) -> dict:
             if len(parts) == 2:  # [MM:SS]
                 m, s = map(int, parts)
                 return m * 60 + s
-            elif len(parts) == 3:  # [HH:MM:SS]
+            if len(parts) == 3:  # [HH:MM:SS]
                 h, m, s = map(int, parts)
                 return h * 3600 + m * 60 + s
-            else:
-                return 0.0
         except ValueError:
-            return 0.0
+            pass
+        return 0.0
 
     def _format_timestamp(seconds: float) -> str:
         """Format seconds into [HH:MM:SS] string for final output."""
@@ -503,26 +581,54 @@ def parse_llm_response(response_text: str, include_raw: bool = False) -> dict:
 
         return f"[{hours:02d}:{minutes:02d}:{seconds:02d}]"
 
-    timestamps = []
-    summary_text = response_text
-    # Pattern to match [MM:SS] or [HH:MM:SS] timestamps
-    for match in re.finditer(r"\[(\d{2}):(\d{2})(?::(\d{2}))?\]", response_text):
-        time_str = match.group(0)
+    # First pass: line-based parser "[time] text" (most common)
+    timestamps: list[dict] = []
+    lines = (response_text or "").splitlines()
+    line_pattern = re.compile(r"^\s*\[(\d{2}):(\d{2})(?::(\d{2}))?\]\s*(.+?)\s*$")
+    matched_any = False
+    for ln in lines:
+        m = line_pattern.match(ln)
+        if not m:
+            continue
+        matched_any = True
+        # Reconstruct original time string for robust parsing
+        hh = m.group(1)
+        mm = m.group(2)
+        ss = m.group(3)
+        time_str = f"[{hh}:{mm}:{ss}]" if ss is not None else f"[{hh}:{mm}]"
         start_time = _parse_time_to_seconds(time_str)
-        # For now, we assume a fixed duration for each timestamped segment (e.g., 5 seconds)
-        # This is a simplification; a more robust approach would require end times from the LLM or other sources.
-        end_time = start_time + 5.0
-        # The text is the part of the summary preceding the timestamp
-        text_start = response_text.rfind(" ", 0, match.start())
-        text = response_text[text_start:match.start()].strip()
-        # Convert to [HH:MM:SS] format for final output
-        formatted_time_str = _format_timestamp(start_time)
-        timestamps.append({"text": text, "start": start_time, "end": end_time})
-        # Replace the original timestamp with the formatted one in the summary text
-        summary_text = summary_text.replace(match.group(0), formatted_time_str)
-    
+        text = (m.group(4) or "").strip()
+        if text:
+            timestamps.append({"text": text, "start": start_time})
+
+    if matched_any and timestamps:
+        # Standardize summary_text to HH:MM:SS + text, one per line
+        summary_text = "\n".join(
+            f"{_format_timestamp(item['start'])} {item['text']}" for item in timestamps
+        ).strip()
+        result = {"summary_text": summary_text, "timestamps": timestamps}
+        if include_raw and (response_text or "").strip() != (summary_text or "").strip():
+            result["raw"] = response_text
+        return result
+
+    # Fallback: permissive parser — find bracketed times anywhere and take following text on the same line
+    timestamps = []
+    summary_text = response_text or ""
+    pat = re.compile(r"\[(\d{2}):(\d{2})(?::(\d{2}))?\]")
+    for m in pat.finditer(summary_text):
+        start_time = _parse_time_to_seconds(m.group(0))
+        # Take text to end-of-line
+        line_end = summary_text.find("\n", m.end())
+        if line_end == -1:
+            line_end = len(summary_text)
+        segment = summary_text[m.end():line_end]
+        text = segment.strip()
+        timestamps.append({"text": text, "start": start_time})
+        # Normalize time format inside summary_text
+        summary_text = summary_text.replace(m.group(0), _format_timestamp(start_time))
+
     result = {"summary_text": summary_text.strip(), "timestamps": timestamps}
-    if include_raw:
+    if include_raw and (response_text or "").strip() != (result["summary_text"] or "").strip():
         result["raw"] = response_text
     return result
 
@@ -1982,8 +2088,7 @@ def main() -> None:
             logger.warning("[post] Timestamped summary requested but vLLM not available or dry-run mode; skipping")
         else:
             try:
-                print("Generating timestamped summary...")
-                timestamped_transcript = prepare_timestamp_context(final["segments"])
+                logger.info("Starting timestamped summary generation...")
                 system_prompt = cfg_get(["timestamped_summary", "system_prompt"], "You are a helpful assistant that processes transcripts to create summaries...")
 
                 # Build a dedicated LLM instance for timestamped_summary using its own config
@@ -2005,10 +2110,103 @@ def main() -> None:
 
                 llm_ts = build_llm(ts_model_id, ts_quant, ts_mml, ts_gmu, ts_mns, ts_mbt)
 
-                timestamped_summary_raw = generate_timestamped_summary(llm_ts, timestamped_transcript, system_prompt)
+                # 1) Build sentence-level prompt text to cut tokens
+                sentence_lines = prepare_sentence_timestamp_lines(final["segments"])
+                if verbose:
+                    logger.info(f"[post] Built sentence-level prompt with {len(sentence_lines.splitlines())} lines")
+
+                # 2) Compute token counts and budget
+                try:
+                    tokenizer_ts = get_tokenizer(llm_ts)
+                    t_in = len(tokenizer_ts.encode(sentence_lines)) if sentence_lines else 0
+                except Exception:
+                    t_in = max(1, len(sentence_lines) // 3) if sentence_lines else 0
+
+                ts_auto_ratio = float(cfg_get(["timestamped_summary", "auto_switch_ratio"], 0.98))
+                ts_margin = int(cfg_get(["timestamped_summary", "auto_margin_tokens"], 128))
+                token_limit = int(max(0.5, min(1.0, ts_auto_ratio)) * ts_mml) - ts_margin
+
+                use_map_reduce = bool(cfg_get(["timestamped_summary", "map_reduce"], False)) or (t_in and token_limit > 0 and t_in > token_limit)
+                
+                if verbose:
+                    logger.info(f"[post] Timestamped summary: tokens={t_in}, limit={token_limit}, map_reduce={use_map_reduce}")
+
                 include_raw = cfg_get(["timestamped_summary", "return_raw"], False)
-                timestamped_summary = parse_llm_response(timestamped_summary_raw, include_raw=include_raw)
-                final["timestamped_summary"] = timestamped_summary
+
+                if not use_map_reduce:
+                    # 3) Single-pass on sentence lines
+                    if verbose:
+                        logger.info("[post] Using single-pass timestamped summary")
+                    timestamped_summary_raw = generate_timestamped_summary(llm_ts, sentence_lines, system_prompt)
+                    timestamped_summary = parse_llm_response(timestamped_summary_raw, include_raw=include_raw)
+                    final["timestamped_summary"] = timestamped_summary
+                else:
+                    # 4) Chunked map-reduce: pack sentence lines into token-budgeted chunks
+                    if verbose:
+                        logger.info("[post] Using chunked map-reduce for timestamped summary")
+                    
+                    chunks = pack_sentence_lines_to_budget(llm_ts, sentence_lines, ts_mml, out_margin=ts_margin, overhead=64)
+                    if verbose:
+                        logger.info(f"[post] Created {len(chunks)} chunks for timestamped summary")
+
+                    chunk_msgs: list[list[dict[str, str]]] = []
+                    for chunk_text in chunks:
+                        if not chunk_text.strip():
+                            continue
+                        chunk_msgs.append([
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": chunk_text},
+                        ])
+
+                    # Keep chunk outputs tight to maximize input space
+                    params_max = min(192, ts_margin)
+                    if chunk_msgs:
+                        outs = generate_chat_batch(llm_ts, chunk_msgs, temperature=0.2, max_tokens=params_max)
+                    else:
+                        outs = []
+
+                    # 5) Parse each chunk, merge timestamps
+                    all_ts: list[tuple[str, float]] = []  # (text, start)
+                    raw_concat: list[str] = []
+                    for o in outs:
+                        if not (o or "").strip():
+                            continue
+                        parsed = parse_llm_response(o, include_raw=False)
+                        if include_raw:
+                            raw_concat.append(o)
+                        for item in parsed.get("timestamps", []) or []:
+                            text_item = str(item.get("text", "")).strip()
+                            start_item = float(item.get("start", 0.0))
+                            if text_item:
+                                all_ts.append((text_item, start_item))
+
+                    # 6) Deduplicate and sort by time
+                    from difflib import SequenceMatcher as _SM
+                    all_ts.sort(key=lambda x: x[1])
+                    merged: list[tuple[str, float]] = []
+                    for text, s in all_ts:
+                        if not text:
+                            continue
+                        if merged:
+                            prev_text, ps = merged[-1]
+                            # near-duplicate textual similarity or very close in time window
+                            sim = _SM(None, prev_text.lower(), text.lower()).ratio()
+                            if sim >= 0.85 or abs(s - ps) <= 2.0:
+                                continue
+                        merged.append((text, s))
+
+                    # 7) Assemble final object
+                    summary_text = " ".join([f"[{int(t//3600):02d}:{int((t%3600)//60):02d}:{int(t%60):02d}] {txt}" for (txt, t) in merged])
+                    final_obj = {
+                        "summary_text": summary_text, 
+                        "timestamps": [{"text": txt, "start": s} for (txt, s) in merged]
+                    }
+                    if include_raw and raw_concat:
+                        final_obj["raw"] = "\n\n".join([r for r in raw_concat if r.strip()])
+                    final["timestamped_summary"] = final_obj
+
+                    if verbose:
+                        logger.info(f"[post] Merged {len(merged)} unique timestamped topics")
 
                 # Free timestamp model after use
                 with suppress(Exception):

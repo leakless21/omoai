@@ -81,9 +81,9 @@ punctuation:
 summarization:
   llm:
     <<: *base_llm
-  map_reduce: false
+  map_reduce: true
   auto_switch_ratio: 0.98
-  auto_margin_tokens: 128
+  auto_margin_tokens: 96
   system_prompt: |
     <instruction>
     Bạn là một chuyên gia phân tích nội dung. Nhiệm vụ của bạn là tạo một bản tóm tắt có cấu trúc, súc tích từ văn bản tiếng Việt được cung cấp.
@@ -146,10 +146,10 @@ summarization:
 timestamped_summary:
   llm:
     <<: *base_llm
-  map_reduce: false
+  map_reduce: true
   auto_switch_ratio: 0.98
-  auto_margin_tokens: 128
-  return_raw: false
+  auto_margin_tokens: 96
+  return_raw: true
   system_prompt: |
     <instruction>
     Bạn là một trợ lý AI chuyên tạo danh sách các chủ đề chính từ một bản ghi có dấu thời gian. Người dùng sẽ cung cấp một bản ghi trong đó mỗi từ được đánh số và có dấu thời gian theo định dạng `[MM:SS] word`.
