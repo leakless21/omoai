@@ -222,7 +222,6 @@ output:
     include_quality_metrics: true
     include_diffs: false
     return_summary_raw: true
-    include_vad: false
 
 api:
   host: "0.0.0.0"  # Use 127.0.0.1 for local-only dev
