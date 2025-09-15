@@ -39,20 +39,21 @@ class MainController(Controller):
         ],
         # Query parameters for output formatting
         formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None,
-        include: list[Literal["transcript_raw", "transcript_punct", "segments"]]
+        include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary"]]
         | None = None,
         ts: Literal["none", "s", "ms", "clock"] | None = None,
         summary: Literal["bullets", "abstract", "both", "none"] | None = None,
         summary_bullets_max: int | None = None,
         summary_lang: str | None = None,
         return_summary_raw: bool | None = None,
+        return_timestamped_summary_raw: bool | None = None,
         include_vad: bool | None = None,
         # Quality metrics and diff options
         include_quality_metrics: bool | None = None,
         include_diffs: bool | None = None,
         # Async processing option
         async_: bool | None = None,
-    ) -> PipelineResponse | Response[str]:
+    ) -> PipelineResponse | Response[str] | Response[dict[str, str]]:
         """
         Endpoint to run the entire audio processing pipeline.
 
@@ -69,7 +70,7 @@ class MainController(Controller):
 
         Query Parameters (optional):
         - formats: List of output formats (json, text, srt, vtt, md)
-        - include: What to include (transcript_raw, transcript_punct, segments)
+        - include: What to include (transcript_raw, transcript_punct, segments, timestamped_summary)
         - ts: Timestamp format (none, s, ms, clock)
         - summary: Summary type (both=default, bullets, abstract, none)
         - summary_bullets_max: Maximum number of bullet points
@@ -92,6 +93,7 @@ class MainController(Controller):
             include_quality_metrics=include_quality_metrics,
             include_diffs=include_diffs,
             return_summary_raw=return_summary_raw,
+            return_timestamped_summary_raw=return_timestamped_summary_raw,
             include_vad=include_vad,
         )
 

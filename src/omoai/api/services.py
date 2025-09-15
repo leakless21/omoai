@@ -32,9 +32,7 @@ from omoai.api.models import (
 
 # Use centralized script wrappers; keep names for backward compatibility
 from omoai.api.scripts.asr_wrapper import run_asr_script as _run_asr_script
-from omoai.api.scripts.postprocess_wrapper import (
-    run_postprocess_script as _run_postprocess_script,
-)
+from omoai.api.scripts.postprocess_wrapper import run_postprocess_script as _run_postprocess_script
 from omoai.config.schemas import get_config
 from omoai.pipeline.postprocess_core_utils import (
     _parse_vietnamese_labeled_text as _parse_labeled_summary,
@@ -227,7 +225,7 @@ def run_asr_script(audio_path, output_path, config_path=None, timeout_seconds=No
 
 
 def run_postprocess_script(
-    asr_json_path, output_path, config_path=None, timeout_seconds=None
+    asr_json_path, output_path, config_path=None, timeout_seconds=None, timestamped_summary: bool = False
 ):
     """Delegate to centralized postprocess wrapper (backwards-compatible symbol)."""
     return _run_postprocess_script(
@@ -235,6 +233,7 @@ def run_postprocess_script(
         output_path=output_path,
         config_path=config_path,
         timeout_seconds=timeout_seconds,
+        timestamped_summary=timestamped_summary,
     )
 
 
@@ -314,7 +313,7 @@ def _asr_script(data: ASRRequest) -> ASRResponse:
         raise AudioProcessingException(f"Unexpected error during ASR: {e!s}") from e
 
 
-def _postprocess_script(data: PostprocessRequest) -> PostprocessResponse:
+def _postprocess_script(data: PostprocessRequest, timestamped_summary: bool = False) -> PostprocessResponse:
     """
     Run punctuation and summarization via scripts.post wrapper on provided ASR output dict.
     """
@@ -333,6 +332,7 @@ def _postprocess_script(data: PostprocessRequest) -> PostprocessResponse:
             asr_json_path=tmp_asr_json,
             output_path=final_json_path,
             config_path=config_path,
+            timestamped_summary=timestamped_summary,
         )
 
         with open(final_json_path, encoding="utf-8") as f:
@@ -342,6 +342,7 @@ def _postprocess_script(data: PostprocessRequest) -> PostprocessResponse:
             summary=dict(final_obj.get("summary", {}) or {}),
             segments=list(final_obj.get("segments", []) or []),
             summary_raw_text=str(final_obj.get("summary_raw_text", "")) or None,
+            timestamped_summary=final_obj.get("timestamped_summary"),
         )
     except subprocess.CalledProcessError as e:
         raise AudioProcessingException(f"Post-processing failed: {e.stderr}") from e
@@ -488,13 +489,19 @@ async def _run_full_pipeline_script(
     logger.info(f"Starting post-processing, output will be saved to: {final_json_path}")
     try:
         logger.info("Starting post-processing")
+        # Check if timestamped_summary is requested
+        timestamped_summary = False
+        if output_params and output_params.include:
+            timestamped_summary = "timestamped_summary" in output_params.include
+        
         # Offload blocking postprocess subprocess; apply timeout if configured
         await asyncio.to_thread(
-            run_postprocess_script,
+            _run_postprocess_script,
             asr_json_path=asr_json_path,
             output_path=final_json_path,
             config_path=config_path,
             timeout_seconds=step_timeout if step_timeout > 0 else None,
+            timestamped_summary=timestamped_summary,
         )
 
         try:
@@ -849,6 +856,7 @@ async def _run_full_pipeline_script(
                 if getattr(output_params, "return_summary_raw", None)
                 else None
             ),
+            timestamped_summary=final_obj.get("timestamped_summary"),
             metadata=meta_out,
         )
         return (response_obj, raw_transcript)
@@ -885,6 +893,7 @@ async def _run_full_pipeline_script(
         summary_raw_text=(str(final_obj.get("summary_raw_text", "")) or None)
         if (output_params and getattr(output_params, "return_summary_raw", None))
         else None,
+        timestamped_summary=final_obj.get("timestamped_summary"),
         metadata=meta_out2,
     )
 
@@ -926,10 +935,17 @@ def asr_service(data: ASRRequest):
 
 
 def _postprocess_service_sync(
-    data: PostprocessRequest, output_params: dict | None = None
+    data: PostprocessRequest, output_params: OutputFormatParams | dict | None = None
 ) -> PostprocessResponse:
     """Synchronous implementation of postprocess service."""
-    return _postprocess_script(data)
+    # Check if timestamped_summary is requested
+    timestamped_summary = False
+    if isinstance(output_params, OutputFormatParams) and output_params.include:
+        timestamped_summary = "timestamped_summary" in output_params.include
+    elif isinstance(output_params, dict) and output_params.get('include'):
+        timestamped_summary = "timestamped_summary" in output_params.get('include', [])
+    
+    return _postprocess_script(data, timestamped_summary=timestamped_summary)
 
 
 async def postprocess_service(

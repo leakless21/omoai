@@ -398,6 +398,100 @@ def run_asr(
     except Exception:
         pass
 
+    # Alignment processing
+    alignment_device = None
+    try:
+        if cfg.alignment.enabled:
+            logger.info("Starting phonetic alignment processing")
+            
+            # Import alignment functions
+            from omoai.integrations.alignment import (
+                to_whisperx_segments,
+                load_alignment_model,
+                align_segments,
+                merge_alignment_back,
+            )
+            
+            # Determine alignment language
+            alignment_language = cfg.alignment.language
+            if alignment_language == "auto":
+                # Default to Vietnamese for now, can be extended to auto-detect
+                alignment_language = "vi"
+            
+            # Load alignment model
+            alignment_device = cfg.alignment.device
+            if alignment_device == "auto":
+                alignment_device = "cuda" if torch.cuda.is_available() else "cpu"
+            
+            logger.info(f"Loading alignment model for language: {alignment_language}, device: {alignment_device}")
+            align_model, align_metadata = load_alignment_model(
+                language=alignment_language,
+                device=alignment_device,
+                model_name=cfg.alignment.align_model,
+            )
+            
+            # Convert segments to alignment format
+            logger.info(f"[ALIGNMENT] Converting {len(segments)} segments to whisperx format.")
+            wx_segments = to_whisperx_segments(segments)
+            logger.info(f"[ALIGNMENT] Converted to {len(wx_segments)} wx_segments: {wx_segments}")
+            if not wx_segments:
+                logger.warning("No segments to align, skipping alignment")
+            else:
+                logger.info(f"Aligning {len(wx_segments)} segments")
+                
+                # Run alignment
+                aligned_result = align_segments(
+                    wx_segments=wx_segments,
+                    audio_path_or_array=str(audio_path),
+                    model=align_model,
+                    metadata=align_metadata,
+                    device=alignment_device,
+                    return_char_alignments=cfg.alignment.return_char_alignments,
+                    interpolate_method=cfg.alignment.interpolate_method,
+                    print_progress=cfg.alignment.print_progress,
+                )
+                logger.info(f"[ALIGNMENT] align_segments result: {aligned_result}")
+                
+                # Merge alignment results back
+                enriched_segments, word_segments = merge_alignment_back(segments, aligned_result)
+                logger.info(f"[ALIGNMENT] merge_alignment_back enriched_segments: {enriched_segments}")
+                logger.info(f"[ALIGNMENT] merge_alignment_back word_segments: {word_segments}")
+                
+                # Update output with enriched segments and word segments
+                output["segments"] = enriched_segments
+                output["word_segments"] = word_segments
+                
+                # Add alignment metadata
+                output.setdefault("metadata", {}).setdefault("alignment", {})
+                output["metadata"]["alignment"] = {
+                    "enabled": True,
+                    "language": alignment_language,
+                    "model": cfg.alignment.align_model or "default",
+                    "device": alignment_device,
+                    "return_char_alignments": cfg.alignment.return_char_alignments,
+                    "interpolate_method": cfg.alignment.interpolate_method,
+                    "segments_aligned": len(enriched_segments),
+                    "words_aligned": len(word_segments),
+                }
+                
+                logger.info(f"Alignment completed: {len(enriched_segments)} segments, {len(word_segments)} words")
+                
+    except Exception as e:
+        logger.warning(f"Alignment failed: {e}", exc_info=True)
+        # Add failure metadata
+        output.setdefault("metadata", {}).setdefault("alignment", {})
+        output["metadata"]["alignment"] = {
+            "enabled": cfg.alignment.enabled,
+            "error": str(e),
+            "status": "failed",
+        }
+    finally:
+        # Clean up GPU memory if CUDA was used
+        if cfg.alignment.enabled and alignment_device == "cuda" and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            if DEBUG_EMPTY_CACHE:
+                logger.info("Cleared CUDA cache after alignment")
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
@@ -410,7 +504,7 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=str,
-        default="/home/cetech/omoai/config.yaml",
+        default="./config.yaml",
         help="Path to config.yaml",
     )
     parser.add_argument(

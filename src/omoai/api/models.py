@@ -31,7 +31,7 @@ class OutputFormatParams(BaseModel):
     formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None
 
     # Transcript options
-    include: list[Literal["transcript_raw", "transcript_punct", "segments"]] | None = (
+    include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary"]] | None = (
         None
     )
     ts: Literal["none", "s", "ms", "clock"] | None = None
@@ -46,6 +46,8 @@ class OutputFormatParams(BaseModel):
     include_diffs: bool | None = None
     # Simple raw summary option
     return_summary_raw: bool | None = None
+    # Option to include raw LLM response for timestamped summary
+    return_timestamped_summary_raw: bool | None = None
     # Include VAD metadata (if available) in the saved or returned JSON
     include_vad: bool | None = None
 
@@ -89,6 +91,9 @@ class PipelineResponse(BaseModel):
     # Optional raw LLM summary text (unparsed), included only on request
     summary_raw_text: str | None = None
     # Optional metadata (e.g., VAD) included only when requested
+    # Optional timestamped summary with [HH:MM:SS] formatted timestamps
+    # Can include an optional "raw" field with the unparsed LLM response
+    timestamped_summary: dict[str, Any] | None = None
     metadata: dict[str, Any] | None = None
 
 

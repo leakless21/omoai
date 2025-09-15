@@ -17,6 +17,7 @@ def run_postprocess_script(
     output_path: str | Path,
     config_path: str | Path | None = None,
     timeout_seconds: float | None = None,
+    timestamped_summary: bool = False,
 ) -> None:
     """
     Invoke the top-level postprocess script as a module with cwd set to project root.
@@ -46,6 +47,10 @@ def run_postprocess_script(
     ]
     if config_path:
         cmd.extend(["--config", str(config_path)])
+    
+    # Add timestamped_summary flag if requested
+    if timestamped_summary:
+        cmd.append("--timestamped_summary")
 
     # Load centralized config to drive runtime toggles from config.yaml
     cfg = None

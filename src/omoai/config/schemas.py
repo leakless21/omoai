@@ -15,6 +15,42 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class AlignmentConfig(BaseModel):
+    """Configuration for phonetic alignment."""
+
+    enabled: bool = Field(default=False, description="Enable or disable phonetic alignment.")
+    language: str | Literal["auto"] = Field(
+        default="auto",
+        description='Language code for the alignment model. Use "auto" to derive from ASR language.',
+    )
+    device: Literal["cpu", "cuda", "auto"] = Field(
+        default="cpu", description="Device to use for alignment (cpu, cuda, or auto-detect)."
+    )
+    align_model: str | None = Field(
+        default=None, description="Optional override for the Hugging Face model name."
+    )
+    return_char_alignments: bool = Field(
+        default=False, description="Whether to compute and return character-level timestamps."
+    )
+    interpolate_method: Literal["nearest", "linear", "ignore"] = Field(
+        default="nearest", description="Method for interpolating word timestamps."
+    )
+    print_progress: bool = Field(
+        default=False, description="Whether to print alignment progress to the console."
+    )
+
+    @field_validator("device")
+    @classmethod
+    def resolve_device(cls, v: str) -> str:
+        if v == "auto":
+            try:
+                import torch
+                return "cuda" if torch.cuda.is_available() else "cpu"
+            except Exception:
+                return "cpu"
+        return v
+
+
 class LoggingSettings(BaseModel):
     """Top-level logging settings, configurable via config.yaml.
 
@@ -408,6 +444,40 @@ class SummarizationConfig(BaseModel):
     )
 
 
+class TimestampedSummaryConfig(BaseModel):
+    """Configuration for timestamped summarization."""
+
+    llm: LLMConfig = Field(
+        description="LLM configuration for timestamped summarization",
+    )
+    auto_margin_tokens: int = Field(
+        default=256, ge=0, description="Automatic margin tokens for context"
+    )
+    return_raw: bool = Field(
+        default=False, description="Return raw LLM response alongside parsed result"
+    )
+    system_prompt: str | None = Field(
+        default=None, description="Custom system prompt for timestamped summarization"
+    )
+    user_prompt: str | None = Field(
+        default=None, description="Custom user prompt template for timestamped summarization"
+    )
+    sampling: SamplingConfig = Field(
+        default_factory=SamplingConfig, description="Sampling parameters"
+    )
+
+    @field_validator("system_prompt", "user_prompt", mode="before")
+    @classmethod
+    def resolve_prompt_file_refs(cls, v):
+        if isinstance(v, str) and v.startswith("@file:"):
+            path = Path(v[len("@file:"):])
+            try:
+                return path.read_text(encoding="utf-8")
+            except Exception as e:
+                raise ValueError(f"Failed to read prompt file {path}: {e}") from e
+        return v
+
+
 class TranscriptOutputConfig(BaseModel):
     """Configuration for transcript outputs and file naming."""
 
@@ -452,7 +522,7 @@ class APIDefaultsConfig(BaseModel):
     """
 
     formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None
-    include: list[Literal["transcript_raw", "transcript_punct", "segments"]] | None = None
+    include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary"]] | None = None
     ts: Literal["none", "s", "ms", "clock"] | None = None
     summary: Literal["bullets", "abstract", "both", "none"] | None = None
     summary_bullets_max: int | None = None
@@ -605,11 +675,15 @@ class OmoAIConfig(BaseSettings):
     )
     asr: ASRConfig = Field(default_factory=ASRConfig)
     vad: VADConfig = Field(default_factory=VADConfig)
+    alignment: AlignmentConfig = Field(default_factory=AlignmentConfig)
     llm: LLMConfig = Field(
         description="Base LLM configuration (model_id required)",
     )
     punctuation: PunctuationConfig
     summarization: SummarizationConfig
+    timestamped_summary: TimestampedSummaryConfig | None = Field(
+        default=None, description="Configuration for timestamped summarization"
+    )
     output: OutputConfig | None = Field(
         default=None, description="Output configuration"
     )
@@ -622,18 +696,22 @@ class OmoAIConfig(BaseSettings):
         if not self.llm.model_id:
             raise ValueError("Base llm.model_id is required")
 
-        # Ensure punctuation and summarization inherit base LLM model_id if not set
+        # Ensure punctuation, summarization, and timestamped_summary inherit base LLM model_id if not set
         if not self.punctuation.llm.model_id:
             self.punctuation.llm.model_id = self.llm.model_id
 
         if not self.summarization.llm.model_id:
             self.summarization.llm.model_id = self.llm.model_id
 
+        if self.timestamped_summary and not self.timestamped_summary.llm.model_id:
+            self.timestamped_summary.llm.model_id = self.llm.model_id
+
         # Validate trust_remote_code consistency
         if (
             self.llm.trust_remote_code
             or self.punctuation.llm.trust_remote_code
             or self.summarization.llm.trust_remote_code
+            or (self.timestamped_summary and self.timestamped_summary.llm.trust_remote_code)
         ):
             import warnings
 

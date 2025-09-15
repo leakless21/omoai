@@ -1,0 +1,285 @@
+{
+  "audio": {
+    "sr": 16000,
+    "path": "/home/cetech/omoai/tests/assets/testaudio.mp3",
+    "duration_s": 677.12
+  },
+  "segments": [
+    {
+      "start": "00:00:00:081",
+      "end": "00:00:29:442",
+      "text_raw": " phỏng đoán ba nờ cổng một hay còn được gọi là phỏng đoán côn át trên kênh ve ri tây sừnn đã nói rằng thoạt nhìn nó rất đơn giản nhưng đây được coi là bài toán nguy hiểm nhất trong toán học các nhà toán học trẻ tuổi được cảnh báo là không nên nặng phí thời gian vào nó và bây giờ chúng ta đang lãng phí thời gian vào nó đó là một phỏng đoán đơn giản mà ngay cả những nhà toán học giỏi nhất thế giới cũng không thể giải được đây là cách nó hoạt động hãy chọn một số bất kỳ ví dụ là bảy bây giờ chúng ta áp dụng hai quy tắc",
+      "chars": null
+    },
+    {
+      "start": "00:00:29:266",
+      "end": "00:00:57:506",
+      "text_raw": " nếu số đó là số lẻ chúng ta nhân với ba và cộng một bởi vậy ba nhân bảy bằng hai mươi mốt cộng một là hai mươi hai nếu số đó là chẵn ta chia số đó cho hai vậy hai chia hai được mười một bây giờ ta tiếp tục áp dụng hai quy tắc này các bạn nghĩ sao về kết quả cuối cùng tôi chắc chắn rằng bạn sẽ phải rất ngạc nhiên về nó mười một là số lẻ lên ta lại nhân ba được ba cộng một là ba mươi tư ba mươi tư là một số chẵn nên chia hai được mười bảy",
+      "chars": null
+    },
+    {
+      "start": "00:00:57:650",
+      "end": "00:01:27:490",
+      "text_raw": " số lẻ ta nhân ba được năm mươi mốt cộng một là năm mươi hai số chẵn chia cho hai và được hai sáu vẫn chẵn nên chia tiếp cho hai được mười ba lẻ nên ta nhân ba được ba mươi chín cộng một là bốn mươi chẵn ta chia hai được hai mươi chia hai tiếp được mười chia hai được năm lẻ nhân ba được mười lăm cộng một là mười sáu chia hai được tám và sau đó là bốn hai và một bây giờ một là một số lẻ vì vậy chúng ta nhân với ba và cộng một sẽ bằng bốn",
+      "chars": null
+    },
+    {
+      "start": "00:01:27:601",
+      "end": "00:01:56:722",
+      "text_raw": " nhưng bốn chia hai lại được hai tiếp tục hai chia hai được một và cuối cùng chúng ta ở trong một vòng lặp và số thấp nhất bây giờ là một phỏng đoán này nói rằng mọi số nguyên dương nếu bạn áp dụng hai quy tắc trên thì cuối cùng sẽ kết thúc trong vòng lặp là bốn hai và một đây được gọi là phỏng đoán tô lát theo tên nhà toán học người đức là lu dơ cô lát người đã có thể nghĩ ra nó vào năm một nghìn chín trăm ba mươi nhưng vấn đề này cũng có rất nhiều câu chuyện về nguồn gốc và nhiều tên gọi nó còn được gọi là phỏng đoán u nam",
+      "chars": null
+    },
+    {
+      "start": "00:01:56:722",
+      "end": "00:02:25:602",
+      "text_raw": " bài toán ca cu ta ni phỏng đoán sơ étét thuật toán hát x seo thay bài toán si đa a cuông và đơn giản nhất là ba nờ cộng một tại sao bãi x cộng một lại nổi tiếng đến vậy trong giới toán học chuyên nghiệp có lẽ nó không phải là lỗi uy tín mà tên được gọi in khét tiếng theo nghĩa đen thực sơ sen nếu ai đó thực sự thừa nhận trước công chúng rằng họ đang nghiên cứu nó thì liệu có gì đó không ổn định cho con số bằng cách áp dụng bãi x cộng một sẽ tạo được một dãy số tự nhiên được gọi là dãy số mưa đá",
+      "chars": null
+    },
+    {
+      "start": "00:02:25:489",
+      "end": "00:02:54:290",
+      "text_raw": " bởi vì giá trị của chúng thường được trải qua những đợt tăng hoặc giảm giá trị đồng loạt như những hạt mưa đá bay lên và rơi xuống trong đám mây nhưng cuối cùng tất cả chúng đều rơi xuống một điều mà các nhà toán học đang nghĩ là như vậy vì chưa có ai chứng minh được nó đúng bạn có thể nghĩ rằng những con số đại diện cho chiều cao so với mặt đất tính bằng mét một số như hai mươi sáu sẽ bắt đầu cách mặt đất hai mươi sáu mét và nếu bạn áp dụng ba ích cộng một nó sẽ tăng lên tới bốn mươi mét và tổng cộng phải mất mười bước để đến được một",
+      "chars": null
+    },
+    {
+      "start": "00:02:54:162",
+      "end": "00:03:06:002",
+      "text_raw": " vậy được gọi là tổng số lần dừng của nó lấy số tiếp theo là và nó sẽ nhảy ở khắp nơi trên thực tế nó leo lên tận nghìn hai trăm ba mươi hai mét",
+      "chars": null
+    },
+    {
+      "start": "00:03:06:082",
+      "end": "00:03:17:442",
+      "text_raw": " là độ cao còn cao hơn cả đỉnh everest trước khi nó rơi xuống mặt đất phải mất một trăm mười một bước để giảm hai mươi bảy xuống một và kết thúc trong vòng lặp bốn hai một",
+      "chars": null
+    },
+    {
+      "start": "00:03:17:682",
+      "end": "00:03:22:962",
+      "text_raw": " các con đường mà các con số khác nhau đi cũng rất khác nhau thậm chí cả những số ngay cạnh nhau",
+      "chars": null
+    },
+    {
+      "start": "00:03:23:537",
+      "end": "00:03:41:378",
+      "text_raw": " một vấn đề được đặt ra là liệu có đạt được tiến bộ nào dựa vào thứ tầm thường này không giáo sư a lếch côn tô vích đã nói rằng thành thật mà nói các nhà khoa học đã đấu tranh để mọi người quyết định rằng đây là thứ do liên xô phát minh ra để đánh kích cấp cho khoa học phổ nước mỹ và nó đang làm rất tốt",
+      "chars": null
+    },
+    {
+      "start": "00:03:41:537",
+      "end": "00:03:45:378",
+      "text_raw": " không có một sự tiến bộ nào đạt được dựa vào thứ này cả",
+      "chars": null
+    },
+    {
+      "start": "00:03:45:697",
+      "end": "00:03:52:498",
+      "text_raw": " nhìn vào đường đi của những con số người ta đặt ra nghi vấn rằng có bất kỳ pho mẫu nào không nhưng rõ ràng",
+      "chars": null
+    },
+    {
+      "start": "00:03:52:414",
+      "end": "00:03:59:853",
+      "text_raw": " là tất cả chúng đều kết thúc tại một những con đường chúng đi để đến đích đều là những con đường ngẫu nhiên",
+      "chars": null
+    },
+    {
+      "start": "00:04:00:094",
+      "end": "00:04:20:173",
+      "text_raw": " đây là một chuỗi số tương đối lớn được chọn ngẫu nhiên biểu đồ đạt đỉnh và sau đó giảm xuống đến mức thấp nhất mà chúng ta thực sự không thể thấy được nó và cuối cùng vẫn là một nhưng nếu bạn lấy nô ga dítp bạn sẽ thấy biểu đồ ngo nghèo này với xu hướng đi xuống nó trông giống như thị trường chứng khoán vào một ngày tồi tệ và đây không phải là một sự trùng hợp ngẫu nhiên",
+      "chars": null
+    },
+    {
+      "start": "00:04:20:414",
+      "end": "00:04:22:654",
+      "text_raw": " cả hai đều là ví dụ về chuyển động bờ đâu âu",
+      "chars": null
+    },
+    {
+      "start": "00:04:22:494",
+      "end": "00:04:35:374",
+      "text_raw": " điều này có nghĩa là nếu bạn lấy nô a rít và loại bỏ xu hướng tuyến tính các dao động là ngẫu nhiên nó giống như tung một đồng xu mỗi lần đồng ngửa thì đường đi lên nếu nó úp thì đường sẽ đi xuống",
+      "chars": null
+    },
+    {
+      "start": "00:04:35:454",
+      "end": "00:04:45:454",
+      "text_raw": " ba x cộng một giống như những dao động ngẫu nhiên của thị trường chứng khoán trong khoảng thời gian đủ dài thị trường chứng khoán có xu hướng đi lên trong khi ba ích cộng một lại có xu hướng đi xuống",
+      "chars": null
+    },
+    {
+      "start": "00:04:45:534",
+      "end": "00:04:50:654",
+      "text_raw": " một cách khác để phân tích bãi x cộng một là nhìn vào chữ số đầu tiên của mỗi số trong chuỗi số mưa đá",
+      "chars": null
+    },
+    {
+      "start": "00:04:50:770",
+      "end": "00:05:00:930",
+      "text_raw": " rồi đưa nó vào thống kê trong một bảng dãy số từ một đến chín ví dụ chuỗi số bắt đầu với một rồi chuỗi số bắt đầu với hai chuỗi với ba",
+      "chars": null
+    },
+    {
+      "start": "00:05:01:650",
+      "end": "00:05:11:250",
+      "text_raw": " tương tự với các chuỗi bắt đầu từ bốn năm sáu bảy tám chín và mười",
+      "chars": null
+    },
+    {
+      "start": "00:05:12:290",
+      "end": "00:05:19:890",
+      "text_raw": " chúng ta chỉ đếm xem có bao nhiêu số có số đầu tiên là các số từ một đến chín và thêm số đó vào biểu đồ của chúng ta",
+      "chars": null
+    },
+    {
+      "start": "00:05:19:922",
+      "end": "00:05:25:682",
+      "text_raw": " cứ tiếp tục làm như vậy ngày càng nhiều số cuối cùng biểu đồ hình thành một mẫu ổn định",
+      "chars": null
+    },
+    {
+      "start": "00:05:26:242",
+      "end": "00:05:47:922",
+      "text_raw": " đối với một tỷ chữ số đầu tiên bạn sẽ thấy một là chữ số đứng đầu phổ biến nhất ba mươi phần trăm tất cả các chữ số bắt đầu bằng số một khoảng mười bảy phẩy năm phần trăm bắt đầu bằng số hai mười hai phần trăm bắt đầu bằng số ba và tần suất giảm dần đối với những chữ số cao hơn ít nhất sẽ là năm phần trăm đối với những chữ số có bắt đầu bằng số chín",
+      "chars": null
+    },
+    {
+      "start": "00:05:48:658",
+      "end": "00:06:16:258",
+      "text_raw": " nhưng thật thú vị là mẫu này không phải là duy nhất cho bãi cộng một nó thực sự xuất hiện ở khắp mọi nơi từ dân số của các quốc gia đến giá trị của các công ty các hàng số vật lý và các số trong dãy vi bô la chi phân phối này được gọi là định luật ven phót và nó thậm chí còn được sử dụng để phát hiện gian lận một cách hiệu quả nếu tất cả các số trên thể hiện mẫu thuế thu nhập của bạn tuân theo định luật ben phót thì có lẽ bạn đang trung thực nếu không bạn có thể đang che giấu điều gì đó",
+      "chars": null
+    },
+    {
+      "start": "00:06:16:114",
+      "end": "00:06:46:674",
+      "text_raw": " trong các cuộc bầu cử định luật ben phót có thể được sử dụng để phát hiện những điểm bất thường mặc dù bạn phải áp dụng nó một cách chính xác nhưng định luật ben phót lại không thể cho chúng ta biết liệu tất cả các số có kết thúc bằng vòng lặp bốn hay một hay không chúng ta hãy xem một kiểu phân tích khác nhìn thoáng qua có vẻ lạ khi bạn áp dụng ba ích cộng một vì sao tất cả các số lại kết thúc bằng một được cùng xem một dãy số có cùng số lượng số lẻ và số chẵn số lẻ thì được nhân lên ba và cộng thêm một trong khi số chẵn bị giảm đi một nửa",
+      "chars": null
+    },
+    {
+      "start": "00:06:47:314",
+      "end": "00:06:52:114",
+      "text_raw": " do đó có vẻ như mọi chuỗi số sẽ tăng lên chứ không hề giảm đi",
+      "chars": null
+    },
+    {
+      "start": "00:06:52:274",
+      "end": "00:06:57:714",
+      "text_raw": " nhưng đây là điểm mấu chốt mỗi khi bạn nhân một số lẻ với ba và sau đó cộng một",
+      "chars": null
+    },
+    {
+      "start": "00:06:57:874",
+      "end": "00:07:04:194",
+      "text_raw": " nó sẽ luôn trở thành một số chẵn và điều đó có nghĩa là bước tiếp theo sẽ là chia cho hai",
+      "chars": null
+    },
+    {
+      "start": "00:07:04:274",
+      "end": "00:07:15:394",
+      "text_raw": " vì vậy các số lẻ không thực sự là nhân ba lần rồi cộng một theo nguyên tắc đơn thuần này chúng tăng theo hệ số khoảng ba phần hai chúng ta đang bỏ qua cộng một vì nó không đáng kể so với các số lớn",
+      "chars": null
+    },
+    {
+      "start": "00:07:15:250",
+      "end": "00:07:20:210",
+      "text_raw": " và phần thực sự là số lẻ lớn nhất có thể tăng trong một bước",
+      "chars": null
+    },
+    {
+      "start": "00:07:20:610",
+      "end": "00:07:45:330",
+      "text_raw": " hãy xem đường đi của các số lẻ trong một dãy số đến số lẻ tiếp theo sau khi nhân ba cộng một sau bước một bạn có tất cả các số làn số chẵn năm mươi phần trăm các sốẵn này chia cho hai sẽ đưa bạn trở lại một số lẻ và giá trị của nó sẽ khoảng ba phần hai số hạng ban đầu và một phần tư số lượng số sau khi thực hiện hai bước cũng đưa chúng ta về một số lẻ tiếp theo giá trị đó khoảng ba phần tư giá trị ban đầu của nó",
+      "chars": null
+    },
+    {
+      "start": "00:07:45:362",
+      "end": "00:08:13:762",
+      "text_raw": " cứ như vậy một phần tám các số tiếp theo sau khi đi các bước để về số lẻ tiếp theo thì giá trị của nó sẽ phạm bằng khoảng ba phần tám rồi đến một phần mười sáu số lượng số và giá trị của nó sẽ khoảng ba phần mười sáu cứ như vậy cho đến vô cùng nếu tính giá trị trung bình của số lẻ tiếp theo nó sẽ có giá trị khoảng ba phần tư điều này là nhỏ hơn một lên về mặt thống kê các chuỗi ép ba ích cộng một có nhiều khả năng bị thu nhỏ hơn là phát triển lấy ba trăm bốn mươi mốt làm ví dụ",
+      "chars": null
+    },
+    {
+      "start": "00:08:13:554",
+      "end": "00:08:42:674",
+      "text_raw": " nhân ba và cộng thêm một chúng ta sẽ nhận được một nghìn không trăm hai mươi tư sau đó bạn chia cho hai tiếp tục chia hai một lần nữa và lặp đi lặp lại tổng cộng mười lần cho đến khi bạn số đến một cách để hình dung các đường đi của các số trong ba x cộng một đơn giản là chỉ ra cách mỗi số kết nối với số tiếp theo trình tự của nó đây được gọi là đồ thị có hướng nó trông giống như một cái cây hay một loạt các dòng suối nhỏ chảy vào nhau nếu phỏng đoán là đúng điều đó có nghĩa là mọi số đều được kết nối với biểu đồ này",
+      "chars": null
+    },
+    {
+      "start": "00:08:42:578",
+      "end": "00:08:49:458",
+      "text_raw": " các dòng chảy chia nhỏ cho đến vô cùng cuối cùng chảy vào một dòng sông lớn là bốn hai một",
+      "chars": null
+    },
+    {
+      "start": "00:08:49:698",
+      "end": "00:09:09:377",
+      "text_raw": " một số nhà khoa học đã sửa đổi mô hình này bằng cách xoay đồ thị tại mỗi số ngược chiều kim đồng hồ nếu đó là số lẻ và phận chiều kim đồng hồ nếu đó là số chẵn cuối cùng sau đó bạn sẽ có một cấu trúc trông giống như san hô hoặc rong biển và bằng cách điều chỉnh mức độ xoay cho các số lẻ và sốẵn bạn có thể tạo ra những hình dạng đẹp mắt như thế này",
+      "chars": null
+    },
+    {
+      "start": "00:09:11:058",
+      "end": "00:09:39:458",
+      "text_raw": " bây giờ có hai cách để phỏng đoán có thể sai đó là có thể tồn tại một số ở đâu đó một hạt giống nào đó bắt đầu một dãy số tăng dần cho đến vô cùng vì bất kỳ lý do gì nó không tuân theo quy tắc giống như các số còn lại một khả năng khác là tồn tại một dãy số tạo thành một vòng khép kín tất cả các số trong vòng lặp này sẽ không được kết nối với biểu đồ chính nhưng cho đến nay chưa có vòng lặp hoặc chuỗi số nào được tìm thấy có thể chạy được đến vô tận",
+      "chars": null
+    },
+    {
+      "start": "00:09:39:922",
+      "end": "00:10:06:402",
+      "text_raw": " điều này không phải là vì các nhà toán học đã thiếu cố gắng họ đã thử nghiệm từng số cho đến hai mũ sáu mươi tám đó là hai trăm chín mươi lăm triệu tỷ một trăm bốn mươi bảy nghìn tỷ chín trăm linh năm nghìn tỷ một trăm bảy mươi chín tỷ ba trăm năm mươi hai triệu tám trăm hai mươi lăm nghìn tám trăm năm mươi sáu số một con số vô cùng vô cùng lớn và có lẽ ta chỉ gặp trên lý thuyết họ biết chắc chắn rằng mỗi một trong những số đó cuối cùng cũng quay trở lại về một",
+      "chars": null
+    },
+    {
+      "start": "00:10:06:514",
+      "end": "00:10:36:994",
+      "text_raw": " ngoài ra họ cũng kiểm tra gần ba trăm triệu tỷ số và không có số nào trong chúng bác bỏ được phỏng đoán trên thực tế với thông tin này các nhà toán học tính toán rằng bất kỳ vòng lặp nào ngoài bốn hai một phải dài ít nhất một trăm tám mươi sáu tỷ số quá lớn để biết số đó là số nào nên có vẻ như phỏng đoán ba ích cộng một là đúng bây giờ một vấn đề nữa được đặt ra liệu có điều gì đó kỳ lạ xảy ra khi bạn đề cập đến các số âm áp dụng cùng quy tắc ba ích cộng một như ở trên thì đây không phải là một vòng lặp",
+      "chars": null
+    },
+    {
+      "start": "00:10:36:798",
+      "end": "00:10:41:998",
+      "text_raw": " cũng không phải hai vòng lặp mà là tới ba vòng lặp số độc lập với nhau",
+      "chars": null
+    },
+    {
+      "start": "00:10:42:558",
+      "end": "00:11:03:918",
+      "text_raw": " và chúng bắt đầu ở các giá trị lớn nhất là âm một âm năm và âm mười bảy tại sao lại có các vòng lặp bị ngắt kết nối ở phía âm của trục số mà không phải ở phía dương đây vẫn là một câu hỏi chưa có câu trả lời rõ ràng điều hay nhất ở phỏng đoán và ích cộng một đó là vấn đề hầu như ai cũng có thể hiểu và tính toán được nhưng chưa có một ai có thể chứng minh được nó đúng với mọi số",
+      "chars": null
+    },
+    {
+      "start": "00:11:04:274",
+      "end": "00:11:12:754",
+      "text_raw": " nên phỏng đoán vẫn chỉ là cảm ơn các bạn đã theo dõi hãy để lại những chia sẻ phía dưới và đăng ký kênh để cập nhật các video hấp dẫn",
+      "chars": null
+    }
+  ],
+  "transcript_raw": "phỏng đoán ba nờ cổng một hay còn được gọi là phỏng đoán côn át trên kênh ve ri tây sừnn đã nói rằng thoạt nhìn nó rất đơn giản nhưng đây được coi là bài toán nguy hiểm nhất trong toán học các nhà toán học trẻ tuổi được cảnh báo là không nên nặng phí thời gian vào nó và bây giờ chúng ta đang lãng phí thời gian vào nó đó là một phỏng đoán đơn giản mà ngay cả những nhà toán học giỏi nhất thế giới cũng không thể giải được đây là cách nó hoạt động hãy chọn một số bất kỳ ví dụ là bảy bây giờ chúng ta áp dụng hai quy tắc nếu số đó là số lẻ chúng ta nhân với ba và cộng một bởi vậy ba nhân bảy bằng hai mươi mốt cộng một là hai mươi hai nếu số đó là chẵn ta chia số đó cho hai vậy hai chia hai được mười một bây giờ ta tiếp tục áp dụng hai quy tắc này các bạn nghĩ sao về kết quả cuối cùng tôi chắc chắn rằng bạn sẽ phải rất ngạc nhiên về nó mười một là số lẻ lên ta lại nhân ba được ba cộng một là ba mươi tư ba mươi tư là một số chẵn nên chia hai được mười bảy số lẻ ta nhân ba được năm mươi mốt cộng một là năm mươi hai số chẵn chia cho hai và được hai sáu vẫn chẵn nên chia tiếp cho hai được mười ba lẻ nên ta nhân ba được ba mươi chín cộng một là bốn mươi chẵn ta chia hai được hai mươi chia hai tiếp được mười chia hai được năm lẻ nhân ba được mười lăm cộng một là mười sáu chia hai được tám và sau đó là bốn hai và một bây giờ một là một số lẻ vì vậy chúng ta nhân với ba và cộng một sẽ bằng bốn nhưng bốn chia hai lại được hai tiếp tục hai chia hai được một và cuối cùng chúng ta ở trong một vòng lặp và số thấp nhất bây giờ là một phỏng đoán này nói rằng mọi số nguyên dương nếu bạn áp dụng hai quy tắc trên thì cuối cùng sẽ kết thúc trong vòng lặp là bốn hai và một đây được gọi là phỏng đoán tô lát theo tên nhà toán học người đức là lu dơ cô lát người đã có thể nghĩ ra nó vào năm một nghìn chín trăm ba mươi nhưng vấn đề này cũng có rất nhiều câu chuyện về nguồn gốc và nhiều tên gọi nó còn được gọi là phỏng đoán u nam bài toán ca cu ta ni phỏng đoán sơ étét thuật toán hát x seo thay bài toán si đa a cuông và đơn giản nhất là ba nờ cộng một tại sao bãi x cộng một lại nổi tiếng đến vậy trong giới toán học chuyên nghiệp có lẽ nó không phải là lỗi uy tín mà tên được gọi in khét tiếng theo nghĩa đen thực sơ sen nếu ai đó thực sự thừa nhận trước công chúng rằng họ đang nghiên cứu nó thì liệu có gì đó không ổn định cho con số bằng cách áp dụng bãi x cộng một sẽ tạo được một dãy số tự nhiên được gọi là dãy số mưa đá bởi vì giá trị của chúng thường được trải qua những đợt tăng hoặc giảm giá trị đồng loạt như những hạt mưa đá bay lên và rơi xuống trong đám mây nhưng cuối cùng tất cả chúng đều rơi xuống một điều mà các nhà toán học đang nghĩ là như vậy vì chưa có ai chứng minh được nó đúng bạn có thể nghĩ rằng những con số đại diện cho chiều cao so với mặt đất tính bằng mét một số như hai mươi sáu sẽ bắt đầu cách mặt đất hai mươi sáu mét và nếu bạn áp dụng ba ích cộng một nó sẽ tăng lên tới bốn mươi mét và tổng cộng phải mất mười bước để đến được một vậy được gọi là tổng số lần dừng của nó lấy số tiếp theo là và nó sẽ nhảy ở khắp nơi trên thực tế nó leo lên tận nghìn hai trăm ba mươi hai mét là độ cao còn cao hơn cả đỉnh everest trước khi nó rơi xuống mặt đất phải mất một trăm mười một bước để giảm hai mươi bảy xuống một và kết thúc trong vòng lặp bốn hai một các con đường mà các con số khác nhau đi cũng rất khác nhau thậm chí cả những số ngay cạnh nhau một vấn đề được đặt ra là liệu có đạt được tiến bộ nào dựa vào thứ tầm thường này không giáo sư a lếch côn tô vích đã nói rằng thành thật mà nói các nhà khoa học đã đấu tranh để mọi người quyết định rằng đây là thứ do liên xô phát minh ra để đánh kích cấp cho khoa học phổ nước mỹ và nó đang làm rất tốt không có một sự tiến bộ nào đạt được dựa vào thứ này cả nhìn vào đường đi của những con số người ta đặt ra nghi vấn rằng có bất kỳ pho mẫu nào không nhưng rõ ràng là tất cả chúng đều kết thúc tại một những con đường chúng đi để đến đích đều là những con đường ngẫu nhiên đây là một chuỗi số tương đối lớn được chọn ngẫu nhiên biểu đồ đạt đỉnh và sau đó giảm xuống đến mức thấp nhất mà chúng ta thực sự không thể thấy được nó và cuối cùng vẫn là một nhưng nếu bạn lấy nô ga dítp bạn sẽ thấy biểu đồ ngo nghèo này với xu hướng đi xuống nó trông giống như thị trường chứng khoán vào một ngày tồi tệ và đây không phải là một sự trùng hợp ngẫu nhiên cả hai đều là ví dụ về chuyển động bờ đâu âu điều này có nghĩa là nếu bạn lấy nô a rít và loại bỏ xu hướng tuyến tính các dao động là ngẫu nhiên nó giống như tung một đồng xu mỗi lần đồng ngửa thì đường đi lên nếu nó úp thì đường sẽ đi xuống ba x cộng một giống như những dao động ngẫu nhiên của thị trường chứng khoán trong khoảng thời gian đủ dài thị trường chứng khoán có xu hướng đi lên trong khi ba ích cộng một lại có xu hướng đi xuống một cách khác để phân tích bãi x cộng một là nhìn vào chữ số đầu tiên của mỗi số trong chuỗi số mưa đá rồi đưa nó vào thống kê trong một bảng dãy số từ một đến chín ví dụ chuỗi số bắt đầu với một rồi chuỗi số bắt đầu với hai chuỗi với ba tương tự với các chuỗi bắt đầu từ bốn năm sáu bảy tám chín và mười chúng ta chỉ đếm xem có bao nhiêu số có số đầu tiên là các số từ một đến chín và thêm số đó vào biểu đồ của chúng ta cứ tiếp tục làm như vậy ngày càng nhiều số cuối cùng biểu đồ hình thành một mẫu ổn định đối với một tỷ chữ số đầu tiên bạn sẽ thấy một là chữ số đứng đầu phổ biến nhất ba mươi phần trăm tất cả các chữ số bắt đầu bằng số một khoảng mười bảy phẩy năm phần trăm bắt đầu bằng số hai mười hai phần trăm bắt đầu bằng số ba và tần suất giảm dần đối với những chữ số cao hơn ít nhất sẽ là năm phần trăm đối với những chữ số có bắt đầu bằng số chín nhưng thật thú vị là mẫu này không phải là duy nhất cho bãi cộng một nó thực sự xuất hiện ở khắp mọi nơi từ dân số của các quốc gia đến giá trị của các công ty các hàng số vật lý và các số trong dãy vi bô la chi phân phối này được gọi là định luật ven phót và nó thậm chí còn được sử dụng để phát hiện gian lận một cách hiệu quả nếu tất cả các số trên thể hiện mẫu thuế thu nhập của bạn tuân theo định luật ben phót thì có lẽ bạn đang trung thực nếu không bạn có thể đang che giấu điều gì đó trong các cuộc bầu cử định luật ben phót có thể được sử dụng để phát hiện những điểm bất thường mặc dù bạn phải áp dụng nó một cách chính xác nhưng định luật ben phót lại không thể cho chúng ta biết liệu tất cả các số có kết thúc bằng vòng lặp bốn hay một hay không chúng ta hãy xem một kiểu phân tích khác nhìn thoáng qua có vẻ lạ khi bạn áp dụng ba ích cộng một vì sao tất cả các số lại kết thúc bằng một được cùng xem một dãy số có cùng số lượng số lẻ và số chẵn số lẻ thì được nhân lên ba và cộng thêm một trong khi số chẵn bị giảm đi một nửa do đó có vẻ như mọi chuỗi số sẽ tăng lên chứ không hề giảm đi nhưng đây là điểm mấu chốt mỗi khi bạn nhân một số lẻ với ba và sau đó cộng một nó sẽ luôn trở thành một số chẵn và điều đó có nghĩa là bước tiếp theo sẽ là chia cho hai vì vậy các số lẻ không thực sự là nhân ba lần rồi cộng một theo nguyên tắc đơn thuần này chúng tăng theo hệ số khoảng ba phần hai chúng ta đang bỏ qua cộng một vì nó không đáng kể so với các số lớn và phần thực sự là số lẻ lớn nhất có thể tăng trong một bước hãy xem đường đi của các số lẻ trong một dãy số đến số lẻ tiếp theo sau khi nhân ba cộng một sau bước một bạn có tất cả các số làn số chẵn năm mươi phần trăm các sốẵn này chia cho hai sẽ đưa bạn trở lại một số lẻ và giá trị của nó sẽ khoảng ba phần hai số hạng ban đầu và một phần tư số lượng số sau khi thực hiện hai bước cũng đưa chúng ta về một số lẻ tiếp theo giá trị đó khoảng ba phần tư giá trị ban đầu của nó cứ như vậy một phần tám các số tiếp theo sau khi đi các bước để về số lẻ tiếp theo thì giá trị của nó sẽ phạm bằng khoảng ba phần tám rồi đến một phần mười sáu số lượng số và giá trị của nó sẽ khoảng ba phần mười sáu cứ như vậy cho đến vô cùng nếu tính giá trị trung bình của số lẻ tiếp theo nó sẽ có giá trị khoảng ba phần tư điều này là nhỏ hơn một lên về mặt thống kê các chuỗi ép ba ích cộng một có nhiều khả năng bị thu nhỏ hơn là phát triển lấy ba trăm bốn mươi mốt làm ví dụ nhân ba và cộng thêm một chúng ta sẽ nhận được một nghìn không trăm hai mươi tư sau đó bạn chia cho hai tiếp tục chia hai một lần nữa và lặp đi lặp lại tổng cộng mười lần cho đến khi bạn số đến một cách để hình dung các đường đi của các số trong ba x cộng một đơn giản là chỉ ra cách mỗi số kết nối với số tiếp theo trình tự của nó đây được gọi là đồ thị có hướng nó trông giống như một cái cây hay một loạt các dòng suối nhỏ chảy vào nhau nếu phỏng đoán là đúng điều đó có nghĩa là mọi số đều được kết nối với biểu đồ này các dòng chảy chia nhỏ cho đến vô cùng cuối cùng chảy vào một dòng sông lớn là bốn hai một một số nhà khoa học đã sửa đổi mô hình này bằng cách xoay đồ thị tại mỗi số ngược chiều kim đồng hồ nếu đó là số lẻ và phận chiều kim đồng hồ nếu đó là số chẵn cuối cùng sau đó bạn sẽ có một cấu trúc trông giống như san hô hoặc rong biển và bằng cách điều chỉnh mức độ xoay cho các số lẻ và sốẵn bạn có thể tạo ra những hình dạng đẹp mắt như thế này bây giờ có hai cách để phỏng đoán có thể sai đó là có thể tồn tại một số ở đâu đó một hạt giống nào đó bắt đầu một dãy số tăng dần cho đến vô cùng vì bất kỳ lý do gì nó không tuân theo quy tắc giống như các số còn lại một khả năng khác là tồn tại một dãy số tạo thành một vòng khép kín tất cả các số trong vòng lặp này sẽ không được kết nối với biểu đồ chính nhưng cho đến nay chưa có vòng lặp hoặc chuỗi số nào được tìm thấy có thể chạy được đến vô tận điều này không phải là vì các nhà toán học đã thiếu cố gắng họ đã thử nghiệm từng số cho đến hai mũ sáu mươi tám đó là hai trăm chín mươi lăm triệu tỷ một trăm bốn mươi bảy nghìn tỷ chín trăm linh năm nghìn tỷ một trăm bảy mươi chín tỷ ba trăm năm mươi hai triệu tám trăm hai mươi lăm nghìn tám trăm năm mươi sáu số một con số vô cùng vô cùng lớn và có lẽ ta chỉ gặp trên lý thuyết họ biết chắc chắn rằng mỗi một trong những số đó cuối cùng cũng quay trở lại về một ngoài ra họ cũng kiểm tra gần ba trăm triệu tỷ số và không có số nào trong chúng bác bỏ được phỏng đoán trên thực tế với thông tin này các nhà toán học tính toán rằng bất kỳ vòng lặp nào ngoài bốn hai một phải dài ít nhất một trăm tám mươi sáu tỷ số quá lớn để biết số đó là số nào nên có vẻ như phỏng đoán ba ích cộng một là đúng bây giờ một vấn đề nữa được đặt ra liệu có điều gì đó kỳ lạ xảy ra khi bạn đề cập đến các số âm áp dụng cùng quy tắc ba ích cộng một như ở trên thì đây không phải là một vòng lặp cũng không phải hai vòng lặp mà là tới ba vòng lặp số độc lập với nhau và chúng bắt đầu ở các giá trị lớn nhất là âm một âm năm và âm mười bảy tại sao lại có các vòng lặp bị ngắt kết nối ở phía âm của trục số mà không phải ở phía dương đây vẫn là một câu hỏi chưa có câu trả lời rõ ràng điều hay nhất ở phỏng đoán và ích cộng một đó là vấn đề hầu như ai cũng có thể hiểu và tính toán được nhưng chưa có một ai có thể chứng minh được nó đúng với mọi số nên phỏng đoán vẫn chỉ là cảm ơn các bạn đã theo dõi hãy để lại những chia sẻ phía dưới và đăng ký kênh để cập nhật các video hấp dẫn",
+  "metadata": {
+    "asr_model": "models/chunkformer/chunkformer-large-vie",
+    "params": {
+      "total_batch_duration": 1800,
+      "chunk_size": 64,
+      "left_context_size": 128,
+      "right_context_size": 128,
+      "autocast_dtype": "fp16"
+    },
+    "vad": {
+      "enabled": true,
+      "method": "silero",
+      "chunk_size": 30.0,
+      "overlap_s": 0.4,
+      "windows": 24,
+      "speech_ratio": 0.9955458412098293
+    },
+    "alignment": {
+      "enabled": true,
+      "language": "vi",
+      "model": "default",
+      "device": "cuda",
+      "return_char_alignments": false,
+      "interpolate_method": "nearest",
+      "segments_aligned": 41,
+      "words_aligned": 0
+    }
+  },
+  "word_segments": []
+}

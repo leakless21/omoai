@@ -419,6 +419,112 @@ def summarize_text(llm: Any, text: str, system_prompt: str, temperature: float =
     parsed_with_raw = dict(parsed)
     parsed_with_raw["raw"] = raw
     return parsed_with_raw
+def prepare_timestamp_context(segments: list[dict]) -> str:
+    """
+    Create a numbered and timestamped transcript string from ASR segments.
+    """
+    def _format_timestamp(seconds: float) -> str:
+        """Format seconds into [MM:SS] string for LLM prompt."""
+        assert seconds >= 0, "non-negative timestamp expected"
+        milliseconds = round(seconds * 1000.0)
+
+        hours = milliseconds // 3_600_000
+        milliseconds -= hours * 3_600_000
+
+        minutes = milliseconds // 60_000
+        milliseconds -= minutes * 60_000
+
+        seconds = milliseconds // 1_000
+        milliseconds -= seconds * 1_000
+
+        return f"[{minutes:02d}:{seconds:02d}]"
+
+    timestamped_transcript = []
+    word_counter = 1
+    for segment in segments:
+        # Look for word-level timestamps in 'word_segments' (from alignment) or 'words'
+        words = segment.get("word_segments") or segment.get("words")
+        if not words:
+            continue
+        for word in words:
+            if "start" in word and "end" in word:
+                start_time = _format_timestamp(word['start'])
+                timestamped_transcript.append(
+                    f"{word_counter}. {start_time} {word['word']}"
+                )
+                word_counter += 1
+    return "\n".join(timestamped_transcript)
+
+
+def generate_timestamped_summary(llm: Any, timestamped_transcript: str, system_prompt: str) -> str:
+    """
+    Generate a summary with timestamps from the LLM.
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Please create a summary of the following transcript:\n\n{timestamped_transcript}"},
+    ]
+    return generate_chat(llm, messages, temperature=0.2, max_tokens=800)
+def parse_llm_response(response_text: str, include_raw: bool = False) -> dict:
+    """
+    Parse the LLM response to extract the summary and timestamps.
+    Optionally include the raw response text.
+    """
+    import re
+
+    def _parse_time_to_seconds(time_str: str) -> float:
+        """Convert [MM:SS] or [HH:MM:SS] string to seconds."""
+        try:
+            parts = time_str.strip('[]').split(':')
+            if len(parts) == 2:  # [MM:SS]
+                m, s = map(int, parts)
+                return m * 60 + s
+            elif len(parts) == 3:  # [HH:MM:SS]
+                h, m, s = map(int, parts)
+                return h * 3600 + m * 60 + s
+            else:
+                return 0.0
+        except ValueError:
+            return 0.0
+
+    def _format_timestamp(seconds: float) -> str:
+        """Format seconds into [HH:MM:SS] string for final output."""
+        assert seconds >= 0, "non-negative timestamp expected"
+        milliseconds = round(seconds * 1000.0)
+
+        hours = milliseconds // 3_600_000
+        milliseconds -= hours * 3_600_000
+
+        minutes = milliseconds // 60_000
+        milliseconds -= minutes * 60_000
+
+        seconds = milliseconds // 1_000
+        milliseconds -= seconds * 1_000
+
+        return f"[{hours:02d}:{minutes:02d}:{seconds:02d}]"
+
+    timestamps = []
+    summary_text = response_text
+    # Pattern to match [MM:SS] or [HH:MM:SS] timestamps
+    for match in re.finditer(r"\[(\d{2}):(\d{2})(?::(\d{2}))?\]", response_text):
+        time_str = match.group(0)
+        start_time = _parse_time_to_seconds(time_str)
+        # For now, we assume a fixed duration for each timestamped segment (e.g., 5 seconds)
+        # This is a simplification; a more robust approach would require end times from the LLM or other sources.
+        end_time = start_time + 5.0
+        # The text is the part of the summary preceding the timestamp
+        text_start = response_text.rfind(" ", 0, match.start())
+        text = response_text[text_start:match.start()].strip()
+        # Convert to [HH:MM:SS] format for final output
+        formatted_time_str = _format_timestamp(start_time)
+        timestamps.append({"text": text, "start": start_time, "end": end_time})
+        # Replace the original timestamp with the formatted one in the summary text
+        summary_text = summary_text.replace(match.group(0), formatted_time_str)
+    
+    result = {"summary_text": summary_text.strip(), "timestamps": timestamps}
+    if include_raw:
+        result["raw"] = response_text
+    return result
 
 
 """Use shared helpers from core utils to avoid duplication."""
@@ -427,7 +533,6 @@ def summarize_text(llm: Any, text: str, system_prompt: str, temperature: float =
 def join_punctuated_segments(
     segments: list[dict[str, Any]],
     join_separator: str = " ",
-    paragraph_gap_seconds: float = 3.0,
     use_vi_sentence_segmenter: bool = False,
 ) -> str:
     """Join per-segment punctuated texts into a coherent transcript.
@@ -436,7 +541,6 @@ def join_punctuated_segments(
     - Append segment by segment into a buffer, joining with a separator
     - Emit complete sentences when sentence-ending punctuation is detected
     - Keep incomplete tail to be continued by the next segment
-    - Insert paragraph breaks if there is a long time gap between segments
     - Deduplicate small overlaps at joins
     """
     extractor_fn: Callable[[str], tuple[list[str], str]] | None = None
@@ -448,14 +552,14 @@ def join_punctuated_segments(
                 sents = [s.strip() for s in sent_tokenize(text) if s.strip()]
                 if not sents:
                     return [], text
-                ends_with_term = bool(re.search(r"[\.\!\?…][”\")»\]]*$", text.strip()))
+                ends_with_term = bool(re.search(r"[\.\!\?…][”\)\"»\]]*$", text.strip()))
                 if ends_with_term:
                     return sents, ""
                 return sents[:-1], sents[-1] if sents else ""
             extractor_fn = _vi_extractor
     if extractor_fn is None:
         # Use a forward-search matcher to avoid variable-length lookbehind
-        sentence_end_pattern = re.compile(r"[\.\!\?…][”\")»\]]*\s+")
+        sentence_end_pattern = re.compile(r"[\.\!\?…][”\)\"»\]]*\s+")
 
         def _default_extractor(text: str) -> tuple[list[str], str]:
             sentences: list[str] = []
@@ -481,19 +585,6 @@ def join_punctuated_segments(
             last_end = end_sec if end_sec is not None else last_end
             continue
 
-        if last_end is not None:
-            start_sec = _parse_time_to_seconds(seg.get("start"))
-            gap = (start_sec - last_end) if start_sec is not None else 0.0
-            if gap >= paragraph_gap_seconds and buffer.strip():
-                # Flush buffer fully as a paragraph
-                assert extractor_fn is not None
-                sentences_pg, tail_pg = extractor_fn(buffer)
-                out_sentences.extend(s for s in sentences_pg if s.strip())
-                if tail_pg.strip():
-                    out_sentences.append(tail_pg.strip())
-                out_sentences.append("")  # paragraph break marker
-                buffer = ""
-
         # Deduplicate small overlaps
         part = _dedup_overlap(buffer, part, max_tokens=8)
 
@@ -513,18 +604,7 @@ def join_punctuated_segments(
     if buffer.strip():
         out_sentences.append(buffer.strip())
 
-    # Recompose paragraphs: empty string => paragraph break
-    pieces: list[str] = []
-    for s in out_sentences:
-        if s == "":
-            if pieces and pieces[-1] != "\n\n":
-                pieces.append("\n\n")
-        else:
-            if not pieces or pieces[-1] == "\n\n":
-                pieces.append(s)
-            else:
-                pieces.append(" " + s)
-    return "".join(pieces).strip()
+    return " ".join(out_sentences)
 
 
 def _count_tokens(llm: Any, text: str) -> int:
@@ -1340,8 +1420,7 @@ def main() -> None:
     parser.add_argument("--punct-auto-ratio", type=float, default=None, help="Ratio of context length used to form per-batch token budget")
     parser.add_argument("--punct-auto-margin", type=int, default=None, help="Margin tokens reserved for punctuation output")
 
-    parser.add_argument("--enable-paragraphs", action="store_true", help="Enable paragraph breaks based on timing gaps")
-    parser.add_argument("--no-paragraphs", action="store_true", help="Disable paragraph formatting")
+    
     # Safety controls
     parser.add_argument("--trust-remote-code", action="store_true", help="Enable trust_remote_code for vLLM")
     parser.add_argument("--no-trust-remote-code", action="store_true", help="Disable trust_remote_code")
@@ -1353,6 +1432,11 @@ def main() -> None:
     parser.add_argument("--no-progress", action="store_true", help="Disable progress bars")
     # Removed: --use-vi-sentence-seg (no longer used in segmented batching-only flow)
     parser.add_argument("--batch-prompts", type=int, default=None, help="Max prompts per batched generation call")
+    parser.add_argument(
+        "--timestamped_summary",
+        action="store_true",
+        help="Generate a summary with timestamps.",
+    )
     args = parser.parse_args()
 
     # Load centralized configuration using the project's Pydantic schemas
@@ -1411,15 +1495,9 @@ def main() -> None:
     # keep_nonempty_segments is enforced and not user-configurable
     # keep_nonempty_segments = True  # Unused variable removed
 
-    enable_paragraphs = cfg_get(["punctuation", "enable_paragraphs"], True)
-    if args.enable_paragraphs:
-        enable_paragraphs = True
-    elif args.no_paragraphs:
-        enable_paragraphs = False
-
     join_sep = str(cfg_get(["punctuation", "join_separator"], " "))
-    paragraph_gap = float(cfg_get(["punctuation", "paragraph_gap_seconds"], 3.0))
     use_vi_sentence_seg = bool(cfg_get(["punctuation", "use_vi_sentence_segmenter"], False))
+    enable_paragraphs = bool(cfg_get(["punctuation", "enable_paragraphs"], True))
 
     # Safety controls
     # Optional user prompt for summarization (prepended to user content)
@@ -1742,15 +1820,12 @@ def main() -> None:
                 deduped = _dedup_overlap(transcript_punct, cp.strip(), max_tokens=8)
                 transcript_punct = (transcript_punct + " " + deduped).strip()
 
-    # Apply paragraph formatting if enabled
-    if enable_paragraphs:
-        # Re-process segments through paragraph formatter for better flow
-        transcript_punct = join_punctuated_segments(
-            punct_segments,
-            join_separator=join_sep,
-            paragraph_gap_seconds=paragraph_gap,
-            use_vi_sentence_segmenter=use_vi_sentence_seg,
-        )
+    # Re-process segments through paragraph formatter for better flow
+    transcript_punct = join_punctuated_segments(
+        punct_segments,
+        join_separator=join_sep,
+        use_vi_sentence_segmenter=use_vi_sentence_seg,
+    )
 
     # Keep llm_punc for reuse if settings match summarization
 
@@ -1808,17 +1883,7 @@ def main() -> None:
             batch_prompts=prompt_batch_prompts,
             show_progress=(tqdm is not None and progress_enabled),
         )
-    # Optionally free engines (process exits anyway)
-    if not reuse:
-        with suppress(Exception):
-            del llm_sum
-    with suppress(Exception):
-        llm_punc = None
-    # Only clear cache at end if debug flag is set
-    if DEBUG_EMPTY_CACHE:
-        with suppress(Exception):
-            torch.cuda.empty_cache()  # type: ignore[attr-defined]
-    gc.collect()
+    # Defer freeing engines until after optional timestamped summary generation
 
     # Consistency check: validate all non-empty text_raw have non-empty text_punct
     non_empty_raw = sum(1 for s in punct_segments if (s.get("text_raw") or "").strip())
@@ -1846,7 +1911,6 @@ def main() -> None:
         "punct_marks": punct_marks,
         "punct_density": round(punct_density, 4),
         "adopt_case": adopt_case,
-        "enable_paragraphs": enable_paragraphs,
         "summarization_mode": "map_reduce" if use_map_reduce else "single",
     }
 
@@ -1912,6 +1976,61 @@ def main() -> None:
         # Keep pipeline robust; if metrics computation fails, omit them
         quality_metrics = None
         human_diff = None
+    # Generate timestamped summary if requested
+    if args.timestamped_summary:
+        if not VLLM_AVAILABLE or args.dry_run:
+            logger.warning("[post] Timestamped summary requested but vLLM not available or dry-run mode; skipping")
+        else:
+            try:
+                print("Generating timestamped summary...")
+                timestamped_transcript = prepare_timestamp_context(final["segments"])
+                system_prompt = cfg_get(["timestamped_summary", "system_prompt"], "You are a helpful assistant that processes transcripts to create summaries...")
+
+                # Build a dedicated LLM instance for timestamped_summary using its own config
+                ts_model_id = cfg_get(["timestamped_summary", "llm", "model_id"], model_id_default) or model_id_default
+                ts_quant = cfg_get(["timestamped_summary", "llm", "quantization"], quant_default) or quant_default
+                ts_mml = int(cfg_get(["timestamped_summary", "llm", "max_model_len"], None) or mml_default)
+                ts_gmu = float(cfg_get(["timestamped_summary", "llm", "gpu_memory_utilization"], None) or gmu_default)
+                ts_mns = int(cfg_get(["timestamped_summary", "llm", "max_num_seqs"], None) or mns_default)
+                ts_mbt = int(cfg_get(["timestamped_summary", "llm", "max_num_batched_tokens"], None) or mbt_default)
+
+                # Free previous engines to avoid OOM before starting a fresh instance
+                with suppress(Exception):
+                    llm_punc = None
+                with suppress(Exception):
+                    del llm_sum
+                with suppress(Exception):
+                    torch.cuda.empty_cache()  # type: ignore[attr-defined]
+                gc.collect()
+
+                llm_ts = build_llm(ts_model_id, ts_quant, ts_mml, ts_gmu, ts_mns, ts_mbt)
+
+                timestamped_summary_raw = generate_timestamped_summary(llm_ts, timestamped_transcript, system_prompt)
+                include_raw = cfg_get(["timestamped_summary", "return_raw"], False)
+                timestamped_summary = parse_llm_response(timestamped_summary_raw, include_raw=include_raw)
+                final["timestamped_summary"] = timestamped_summary
+
+                # Free timestamp model after use
+                with suppress(Exception):
+                    del llm_ts
+                with suppress(Exception):
+                    torch.cuda.empty_cache()  # type: ignore[attr-defined]
+                gc.collect()
+            except Exception as e:
+                logger.warning(f"[post] Failed to generate timestamped summary: {e}")
+
+
+    # Now it's safe to free any remaining engines (the process exits anyway)
+    if not reuse:
+        with suppress(Exception):
+            del llm_sum
+    with suppress(Exception):
+        llm_punc = None
+    # Only clear cache at end if debug flag is set
+    if DEBUG_EMPTY_CACHE:
+        with suppress(Exception):
+            torch.cuda.empty_cache()  # type: ignore[attr-defined]
+    gc.collect()
 
     final.update(
         {
@@ -2088,3 +2207,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
