@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Dict
+from typing import Any
 
 from litestar import get
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
-
-_METRICS: Dict[str, Any] = {
+_METRICS: dict[str, Any] = {
     "request_total": 0,
     "request_latency_sum": 0.0,
 }

@@ -492,34 +492,34 @@ def pack_sentence_lines_to_budget(llm: Any, lines_text: str, max_model_len: int,
     """
     if not lines_text.strip():
         return []
-    
+
     try:
         tokenizer = get_tokenizer(llm)
         input_limit = max(256, int(max_model_len) - overhead - out_margin)
-        
+
         # Split by lines to preserve sentence boundaries
         lines = [ln for ln in lines_text.splitlines() if ln.strip()]
         if not lines:
             return []
-            
+
         chunks: list[str] = []
         cur: list[str] = []
         cur_tokens = 0
-        
+
         for ln in lines:
             try:
                 t = len(tokenizer.encode(ln))
             except Exception:
                 # Fallback estimation if tokenization fails
                 t = max(1, len(ln) // 3)
-                
+
             if cur_tokens and cur_tokens + t > input_limit:
                 if cur:
                     chunks.append("\n".join(cur))
                 cur, cur_tokens = [], 0
             cur.append(ln)
             cur_tokens += t
-            
+
         if cur:
             chunks.append("\n".join(cur))
         return chunks
@@ -1526,7 +1526,7 @@ def main() -> None:
     parser.add_argument("--punct-auto-ratio", type=float, default=None, help="Ratio of context length used to form per-batch token budget")
     parser.add_argument("--punct-auto-margin", type=int, default=None, help="Margin tokens reserved for punctuation output")
 
-    
+
     # Safety controls
     parser.add_argument("--trust-remote-code", action="store_true", help="Enable trust_remote_code for vLLM")
     parser.add_argument("--no-trust-remote-code", action="store_true", help="Disable trust_remote_code")
@@ -2127,7 +2127,7 @@ def main() -> None:
                 token_limit = int(max(0.5, min(1.0, ts_auto_ratio)) * ts_mml) - ts_margin
 
                 use_map_reduce = bool(cfg_get(["timestamped_summary", "map_reduce"], False)) or (t_in and token_limit > 0 and t_in > token_limit)
-                
+
                 if verbose:
                     logger.info(f"[post] Timestamped summary: tokens={t_in}, limit={token_limit}, map_reduce={use_map_reduce}")
 
@@ -2144,7 +2144,7 @@ def main() -> None:
                     # 4) Chunked map-reduce: pack sentence lines into token-budgeted chunks
                     if verbose:
                         logger.info("[post] Using chunked map-reduce for timestamped summary")
-                    
+
                     chunks = pack_sentence_lines_to_budget(llm_ts, sentence_lines, ts_mml, out_margin=ts_margin, overhead=64)
                     if verbose:
                         logger.info(f"[post] Created {len(chunks)} chunks for timestamped summary")
@@ -2198,7 +2198,7 @@ def main() -> None:
                     # 7) Assemble final object
                     summary_text = " ".join([f"[{int(t//3600):02d}:{int((t%3600)//60):02d}:{int(t%60):02d}] {txt}" for (txt, t) in merged])
                     final_obj = {
-                        "summary_text": summary_text, 
+                        "summary_text": summary_text,
                         "timestamps": [{"text": txt, "start": s} for (txt, s) in merged]
                     }
                     if include_raw and raw_concat:

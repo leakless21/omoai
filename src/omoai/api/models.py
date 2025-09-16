@@ -31,7 +31,7 @@ class OutputFormatParams(BaseModel):
     formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None
 
     # Transcript options
-    include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary"]] | None = (
+    include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary", "summary"]] | None = (
         None
     )
     ts: Literal["none", "s", "ms", "clock"] | None = None

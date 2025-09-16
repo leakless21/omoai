@@ -4,13 +4,13 @@ import asyncio
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 from litestar import Controller, get
 from litestar.response import Response
 
-from omoai.api.models import OutputFormatParams, PipelineRequest
 from omoai.api import services as _svc
+from omoai.api.models import OutputFormatParams, PipelineRequest
 
 
 @dataclass
@@ -18,15 +18,15 @@ class JobRecord:
     id: str
     status: str = "PENDING"  # PENDING | RUNNING | SUCCEEDED | FAILED
     submitted_at: float = field(default_factory=lambda: time.time())
-    started_at: Optional[float] = None
-    ended_at: Optional[float] = None
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    started_at: float | None = None
+    ended_at: float | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class JobManager:
     def __init__(self) -> None:
-        self._jobs: Dict[str, JobRecord] = {}
+        self._jobs: dict[str, JobRecord] = {}
         self._lock = asyncio.Lock()
 
     async def submit_pipeline_job(
@@ -62,7 +62,7 @@ class JobManager:
         asyncio.create_task(_runner())
         return job_id
 
-    async def get(self, job_id: str) -> Optional[JobRecord]:
+    async def get(self, job_id: str) -> JobRecord | None:
         async with self._lock:
             return self._jobs.get(job_id)
 
@@ -78,7 +78,7 @@ class JobsController(Controller):
         rec = await job_manager.get(job_id)
         if rec is None:
             return Response({"error": "job not found", "job_id": job_id}, status_code=404)
-        body: Dict[str, Any] = {
+        body: dict[str, Any] = {
             "job_id": rec.id,
             "status": rec.status.lower(),
             "submitted_at": rec.submitted_at,

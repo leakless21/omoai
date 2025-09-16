@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 import subprocess
 from dataclasses import dataclass
-from typing import Iterable, Optional, Union, List, Dict, Any, Tuple, TypedDict
+from typing import Any, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -96,21 +96,21 @@ class SingleSegment(TypedDict):
     text: str
 
 class SegmentData(TypedDict):
-    clean_char: List[str]
-    clean_cdx: List[int]
-    clean_wdx: List[int]
-    sentence_spans: List[Tuple[int, int]]
+    clean_char: list[str]
+    clean_cdx: list[int]
+    clean_wdx: list[int]
+    sentence_spans: list[tuple[int, int]]
 
 class SingleAlignedSegment(TypedDict):
     start: float
     end: float
     text: str
-    words: List[SingleWordSegment]
-    chars: Optional[List[SingleCharSegment]]
+    words: list[SingleWordSegment]
+    chars: list[SingleCharSegment] | None
 
 class AlignedTranscriptionResult(TypedDict):
-    segments: List[SingleAlignedSegment]
-    word_segments: List[SingleWordSegment]
+    segments: list[SingleAlignedSegment]
+    word_segments: list[SingleWordSegment]
 
 # Data structures for alignment
 @dataclass
@@ -121,7 +121,7 @@ class Point:
 
 @dataclass
 class Path:
-    points: List[Point]
+    points: list[Point]
     score: float
 
 @dataclass
@@ -129,7 +129,7 @@ class BeamState:
     token_index: int
     time_index: int
     score: float
-    path: List[Point]
+    path: list[Point]
 
 @dataclass
 class Segment:
@@ -195,7 +195,7 @@ def load_audio(file: str, sr: int = SAMPLE_RATE) -> np.ndarray:
 
     return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
 
-def load_align_model(language_code: str, device: str, model_name: Optional[str] = None, model_dir=None):
+def load_align_model(language_code: str, device: str, model_name: str | None = None, model_dir=None):
     """
     Load alignment model for specified language
     
@@ -280,16 +280,16 @@ def get_trellis(emission, tokens, blank_id=0):
 def get_wildcard_emission(frame_emission, tokens, blank_id):
     """Processing token emission scores containing wildcards (vectorized version)"""
     assert 0 <= blank_id < len(frame_emission)
-    
+
     tokens = torch.tensor(tokens) if not isinstance(tokens, torch.Tensor) else tokens
     wildcard_mask = (tokens == -1)
-    
+
     regular_scores = frame_emission[tokens.clamp(min=0).long()]
-    
+
     max_valid_score = frame_emission.clone()
     max_valid_score[blank_id] = float('-inf')
     max_valid_score = max_valid_score.max()
-    
+
     result = torch.where(wildcard_mask, max_valid_score, regular_scores)
     return result
 
@@ -397,7 +397,7 @@ def backtrack_beam(trellis, emission, tokens, blank_id=0, beam_width=5):
 
         if not next_beams:
             break
-            
+
         beams = sorted(next_beams, key=lambda x: x.score, reverse=True)[:beam_width]
 
     if not beams:
@@ -406,7 +406,7 @@ def backtrack_beam(trellis, emission, tokens, blank_id=0, beam_width=5):
     best_beam = beams[0]
     t = best_beam.time_index
     j = best_beam.token_index
-    
+
     # Complete the path by adding remaining blank transitions
     while t > 0:
         prob = emission[t - 1, blank_id].exp().item()
@@ -452,10 +452,10 @@ def merge_words(segments, separator="|"):
     return words
 
 def align(
-    transcript: List[SingleSegment],
+    transcript: list[SingleSegment],
     model: torch.nn.Module,
     align_model_metadata: dict,
-    audio: Union[str, np.ndarray, torch.Tensor],
+    audio: str | np.ndarray | torch.Tensor,
     device: str,
     interpolate_method: str = "nearest",
     return_char_alignments: bool = False,
@@ -485,7 +485,7 @@ def align(
         audio = torch.from_numpy(audio)
     if len(audio.shape) == 1:
         audio = audio.unsqueeze(0)
-    
+
     MAX_DURATION = audio.shape[1] / SAMPLE_RATE
 
     model_dictionary = align_model_metadata["dictionary"]
@@ -494,14 +494,14 @@ def align(
 
     # Preprocess to keep only characters in dictionary
     total_segments = len(transcript)
-    segment_data: Dict[int, SegmentData] = {}
-    
+    segment_data: dict[int, SegmentData] = {}
+
     for sdx, segment in enumerate(transcript):
         if print_progress:
             base_progress = ((sdx + 1) / total_segments) * 100
             percent_complete = (50 + base_progress / 2) if combined_progress else base_progress
             print(f"Progress: {percent_complete:.2f}%...")
-            
+
         num_leading = len(segment["text"]) - len(segment["text"].lstrip())
         num_trailing = len(segment["text"]) - len(segment["text"].rstrip())
         text = segment["text"]
@@ -518,7 +518,7 @@ def align(
             # wav2vec2 models use "|" character to represent spaces
             if model_lang not in LANGUAGES_WITHOUT_SPACES:
                 char_ = char_.replace(" ", "|")
-            
+
             # Ignore whitespace at beginning and end of transcript
             if cdx < num_leading:
                 pass
@@ -542,16 +542,16 @@ def align(
 
         # Simple sentence splitting (NLTK not available, using basic approach)
         sentence_spans = [(0, len(text))]  # Single sentence for now
-                
+
         segment_data[sdx] = {
             "clean_char": clean_char,
             "clean_cdx": clean_cdx,
             "clean_wdx": clean_wdx,
             "sentence_spans": sentence_spans
         }
-            
-    aligned_segments: List[SingleAlignedSegment] = []
-    
+
+    aligned_segments: list[SingleAlignedSegment] = []
+
     # Get prediction matrix from alignment model & align
     for sdx, segment in enumerate(transcript):
         t1 = segment["start"]
@@ -595,7 +595,7 @@ def align(
             )
         else:
             lengths = None
-            
+
         with torch.inference_mode():
             if model_type == "torchaudio":
                 emissions, _ = model(waveform_segment.to(device), lengths=lengths)
@@ -627,12 +627,12 @@ def align(
             print(f'Failed to align segment ("{segment["text"]}"): invalid duration {duration}, resorting to original...')
             aligned_segments.append(aligned_seg)
             continue
-            
+
         if trellis.size(0) <= 1:
             print(f'Failed to align segment ("{segment["text"]}"): insufficient trellis frames {trellis.size(0)}, resorting to original...')
             aligned_segments.append(aligned_seg)
             continue
-            
+
         ratio = duration * waveform_segment.size(0) / (trellis.size(0) - 1)
 
         # Assign timestamps to aligned characters
@@ -659,7 +659,7 @@ def align(
                 word_idx += 1
             elif cdx == len(text) - 1 or text[cdx+1] == " ":
                 word_idx += 1
-            
+
         char_segments_arr = pd.DataFrame(char_segments_arr)
 
         aligned_subsegments = []
@@ -688,7 +688,7 @@ def align(
                 word_end = word_chars["end"].max()
                 word_score = round(word_chars["score"].mean(), 3)
 
-                # -1 indicates unalignable 
+                # -1 indicates unalignable
                 word_segment = {"word": word_text}
 
                 if not pd.isna(word_start):
@@ -699,7 +699,7 @@ def align(
                     word_segment["score"] = word_score
 
                 sentence_words.append(word_segment)
-            
+
             aligned_subsegments.append({
                 "text": sentence_text,
                 "start": sentence_start,
@@ -717,7 +717,7 @@ def align(
         aligned_subsegments = pd.DataFrame(aligned_subsegments)
         aligned_subsegments["start"] = interpolate_nans(aligned_subsegments["start"], method=interpolate_method)
         aligned_subsegments["end"] = interpolate_nans(aligned_subsegments["end"], method=interpolate_method)
-        
+
         # Concatenate sentences with same timestamps
         agg_dict = {"text": " ".join, "words": "sum"}
         if model_lang in LANGUAGES_WITHOUT_SPACES:
@@ -729,7 +729,7 @@ def align(
         aligned_segments += aligned_subsegments
 
     # Create word_segments list
-    word_segments: List[SingleWordSegment] = []
+    word_segments: list[SingleWordSegment] = []
     for segment in aligned_segments:
         word_segments += segment["words"]
 
@@ -744,7 +744,7 @@ def to_whisperx_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]
             return 0.0
         if isinstance(time_str, (int, float)):
             return float(time_str)
-        
+
         # Handle string formats like "00:00:00:081" (HH:MM:SS:MMM)
         if isinstance(time_str, str) and ':' in time_str:
             try:
@@ -766,32 +766,32 @@ def to_whisperx_segments(segments: list[dict[str, Any]]) -> list[dict[str, Any]]
                     return minutes * 60 + seconds
             except (ValueError, TypeError):
                 pass
-        
+
         # Fallback: try direct float conversion
         try:
             return float(time_str)
         except (ValueError, TypeError):
             return 0.0
-    
+
     p2s = _parse_time_to_seconds
-    
+
     out: list[dict[str, Any]] = []
     for s in segments:
         text = (s.get("text_raw") or s.get("text") or "").strip()
         if not text:
             continue
-        
+
         start_val = p2s(s.get("start")) if s.get("start") is not None else 0.0
         end_val = p2s(s.get("end")) if s.get("end") is not None else start_val
-        
+
         # Ensure we have valid start and end times
         start = float(start_val) if start_val is not None else 0.0
         end = float(end_val) if end_val is not None else start
-        
+
         # Ensure end is not before start
         if end < start:
             end = start
-            
+
         out.append({"start": start, "end": end, "text": text})
     return out
 
@@ -800,7 +800,7 @@ def load_alignment_model(language: str, device: str, model_name: str | None = No
     return load_align_model(language_code=language, device=device, model_name=model_name)
 
 def align_segments(
-    wx_segments: List[dict[str, Any]],
+    wx_segments: list[dict[str, Any]],
     audio_path_or_array: Any,
     model: Any,
     metadata: dict,
@@ -812,14 +812,14 @@ def align_segments(
 ) -> dict:
     """Run alignment using the self-contained implementation."""
     # Convert dict segments to TypedDict format
-    typed_segments: List[SingleSegment] = []
+    typed_segments: list[SingleSegment] = []
     for seg in wx_segments:
         typed_segments.append({
             "start": float(seg["start"]),
             "end": float(seg["end"]),
             "text": seg["text"]
         })
-    
+
     result = align(
         typed_segments,
         model,

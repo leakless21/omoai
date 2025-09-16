@@ -47,7 +47,7 @@ def run_postprocess_script(
     ]
     if config_path:
         cmd.extend(["--config", str(config_path)])
-    
+
     # Add timestamped_summary flag if requested
     if timestamped_summary:
         cmd.append("--timestamped_summary")

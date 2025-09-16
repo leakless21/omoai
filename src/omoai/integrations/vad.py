@@ -10,10 +10,10 @@ Current implementation:
 All functions are best-effort and must never raise; callers can fall back to full-audio decode.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
-
+from typing import Literal
 
 VADMethod = Literal["webrtc", "silero", "pyannote"]
 
@@ -141,9 +141,9 @@ def detect_speech(
             ts = None
             try:
                 from silero_vad import (
+                    get_speech_timestamps,
                     load_silero_vad,
                     read_audio,
-                    get_speech_timestamps,
                 )  # type: ignore
 
                 model = load_silero_vad(onnx=False)

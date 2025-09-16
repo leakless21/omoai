@@ -727,8 +727,9 @@ class OmoAIConfig(BaseSettings):
     @classmethod
     def load_from_yaml(cls, config_path: Path) -> "OmoAIConfig":
         """Load configuration from YAML file with validation."""
-        import yaml
         import os
+
+        import yaml
 
         if not config_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_path}")

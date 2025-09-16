@@ -32,7 +32,9 @@ from omoai.api.models import (
 
 # Use centralized script wrappers; keep names for backward compatibility
 from omoai.api.scripts.asr_wrapper import run_asr_script as _run_asr_script
-from omoai.api.scripts.postprocess_wrapper import run_postprocess_script as _run_postprocess_script
+from omoai.api.scripts.postprocess_wrapper import (
+    run_postprocess_script as _run_postprocess_script,
+)
 from omoai.config.schemas import get_config
 from omoai.pipeline.postprocess_core_utils import (
     _parse_vietnamese_labeled_text as _parse_labeled_summary,
@@ -130,8 +132,8 @@ def _normalize_summary(raw_summary: Any) -> dict:
 def run_preprocess_script(input_path, output_path):
     """Fallback preprocess implementation using ffmpeg directly."""
     import logging
-    import subprocess
     import os
+    import subprocess
 
     logger = logging.getLogger(__name__)
 
@@ -342,7 +344,6 @@ def _postprocess_script(data: PostprocessRequest, timestamped_summary: bool = Fa
             summary=dict(final_obj.get("summary", {}) or {}),
             segments=list(final_obj.get("segments", []) or []),
             summary_raw_text=str(final_obj.get("summary_raw_text", "")) or None,
-            timestamped_summary=final_obj.get("timestamped_summary"),
         )
     except subprocess.CalledProcessError as e:
         raise AudioProcessingException(f"Post-processing failed: {e.stderr}") from e
@@ -493,7 +494,7 @@ async def _run_full_pipeline_script(
         timestamped_summary = False
         if output_params and output_params.include:
             timestamped_summary = "timestamped_summary" in output_params.include
-        
+
         # Offload blocking postprocess subprocess; apply timeout if configured
         await asyncio.to_thread(
             _run_postprocess_script,
@@ -571,7 +572,7 @@ async def _run_full_pipeline_script(
                     )
 
                     if output_params and getattr(output_params, "include", None):
-                        inc = set(getattr(output_params, "include") or [])
+                        inc = set(output_params.include or [])
                         if "segments" not in inc:
                             segments_save = []
                         if "transcript_punct" not in inc:
@@ -786,6 +787,10 @@ async def _run_full_pipeline_script(
                 filtered_segments = []
             if "transcript_punct" not in include_set:
                 filtered_transcript_punct = ""
+            if "summary" not in include_set:
+                filtered_summary = {}
+            if "timestamped_summary" not in include_set:
+                final_obj["timestamped_summary"] = None
 
         quality_metrics = None
         diffs = None
@@ -880,20 +885,38 @@ async def _run_full_pipeline_script(
     except Exception:
         meta_out2 = None
 
+    # Apply include filtering for fallback case (no output_params)
+    filtered_summary2 = {
+        "title": norm2.get("title", ""),
+        "abstract": norm2.get("abstract", ""),
+        "bullets": list(norm2.get("bullets", [])),
+    }
+    filtered_segments2 = list(final_obj.get("segments", []) or [])
+    filtered_transcript_punct2 = str(final_obj.get("transcript_punct", "")) or None
+    filtered_timestamped_summary2 = final_obj.get("timestamped_summary")
+
+    # Apply include filtering if output_params is provided
+    if output_params and getattr(output_params, "include", None):
+        include_set = set(output_params.include)
+        if "summary" not in include_set:
+            filtered_summary2 = {}
+        if "segments" not in include_set:
+            filtered_segments2 = []
+        if "transcript_punct" not in include_set:
+            filtered_transcript_punct2 = ""
+        if "timestamped_summary" not in include_set:
+            filtered_timestamped_summary2 = None
+
     response_obj = PipelineResponse(
-        summary={
-            "title": norm2.get("title", ""),
-            "abstract": norm2.get("abstract", ""),
-            "bullets": list(norm2.get("bullets", [])),
-        },
-        segments=list(final_obj.get("segments", []) or []),
-        transcript_punct=str(final_obj.get("transcript_punct", "")) or None,
+        summary=filtered_summary2,
+        segments=filtered_segments2,
+        transcript_punct=filtered_transcript_punct2,
         quality_metrics=quality_metrics,
         diffs=diffs,
         summary_raw_text=(str(final_obj.get("summary_raw_text", "")) or None)
         if (output_params and getattr(output_params, "return_summary_raw", None))
         else None,
-        timestamped_summary=final_obj.get("timestamped_summary"),
+        timestamped_summary=filtered_timestamped_summary2,
         metadata=meta_out2,
     )
 
@@ -944,7 +967,7 @@ def _postprocess_service_sync(
         timestamped_summary = "timestamped_summary" in output_params.include
     elif isinstance(output_params, dict) and output_params.get('include'):
         timestamped_summary = "timestamped_summary" in output_params.get('include', [])
-    
+
     return _postprocess_script(data, timestamped_summary=timestamped_summary)
 
 
@@ -1089,3 +1112,4 @@ __all__ = [
     "run_full_pipeline",
     "warmup_services",
 ]
+

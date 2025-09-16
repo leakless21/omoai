@@ -270,13 +270,13 @@ def run_asr(
     # Optional VAD pre-segmentation
     # Lazy imports for config and utils to avoid early sys.path issues
     from omoai.config.schemas import get_config  # type: ignore
-    from omoai.pipeline.postprocess_core_utils import (
-        _parse_time_to_seconds as _parse_time_to_seconds,  # type: ignore
-    )
     from omoai.integrations.vad import (  # type: ignore
+        apply_overlap,
         detect_speech,
         merge_chunks,
-        apply_overlap,
+    )
+    from omoai.pipeline.postprocess_core_utils import (
+        _parse_time_to_seconds as _parse_time_to_seconds,  # type: ignore
     )
     cfg = get_config()
     use_vad = False
@@ -403,33 +403,33 @@ def run_asr(
     try:
         if cfg.alignment.enabled:
             logger.info("Starting phonetic alignment processing")
-            
+
             # Import alignment functions
             from omoai.integrations.alignment import (
-                to_whisperx_segments,
-                load_alignment_model,
                 align_segments,
+                load_alignment_model,
                 merge_alignment_back,
+                to_whisperx_segments,
             )
-            
+
             # Determine alignment language
             alignment_language = cfg.alignment.language
             if alignment_language == "auto":
                 # Default to Vietnamese for now, can be extended to auto-detect
                 alignment_language = "vi"
-            
+
             # Load alignment model
             alignment_device = cfg.alignment.device
             if alignment_device == "auto":
                 alignment_device = "cuda" if torch.cuda.is_available() else "cpu"
-            
+
             logger.info(f"Loading alignment model for language: {alignment_language}, device: {alignment_device}")
             align_model, align_metadata = load_alignment_model(
                 language=alignment_language,
                 device=alignment_device,
                 model_name=cfg.alignment.align_model,
             )
-            
+
             # Convert segments to alignment format
             logger.info(f"[ALIGNMENT] Converting {len(segments)} segments to whisperx format.")
             wx_segments = to_whisperx_segments(segments)
@@ -438,7 +438,7 @@ def run_asr(
                 logger.warning("No segments to align, skipping alignment")
             else:
                 logger.info(f"Aligning {len(wx_segments)} segments")
-                
+
                 # Run alignment
                 aligned_result = align_segments(
                     wx_segments=wx_segments,
@@ -451,16 +451,16 @@ def run_asr(
                     print_progress=cfg.alignment.print_progress,
                 )
                 logger.info(f"[ALIGNMENT] align_segments result: {aligned_result}")
-                
+
                 # Merge alignment results back
                 enriched_segments, word_segments = merge_alignment_back(segments, aligned_result)
                 logger.info(f"[ALIGNMENT] merge_alignment_back enriched_segments: {enriched_segments}")
                 logger.info(f"[ALIGNMENT] merge_alignment_back word_segments: {word_segments}")
-                
+
                 # Update output with enriched segments and word segments
                 output["segments"] = enriched_segments
                 output["word_segments"] = word_segments
-                
+
                 # Add alignment metadata
                 output.setdefault("metadata", {}).setdefault("alignment", {})
                 output["metadata"]["alignment"] = {
@@ -473,9 +473,9 @@ def run_asr(
                     "segments_aligned": len(enriched_segments),
                     "words_aligned": len(word_segments),
                 }
-                
+
                 logger.info(f"Alignment completed: {len(enriched_segments)} segments, {len(word_segments)} words")
-                
+
     except Exception as e:
         logger.warning(f"Alignment failed: {e}", exc_info=True)
         # Add failure metadata

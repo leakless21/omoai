@@ -8,8 +8,8 @@ from litestar.response import Redirect, Response
 from starlette.requests import Request
 
 from omoai.api.models import OutputFormatParams, PipelineRequest, PipelineResponse
-from omoai.config.schemas import get_config
 from omoai.api.services import run_full_pipeline
+from omoai.config.schemas import get_config
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class MainController(Controller):
         ],
         # Query parameters for output formatting
         formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None,
-        include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary"]]
+        include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary", "summary"]]
         | None = None,
         ts: Literal["none", "s", "ms", "clock"] | None = None,
         summary: Literal["bullets", "abstract", "both", "none"] | None = None,
@@ -108,9 +108,9 @@ class MainController(Controller):
                 if api_def:
                     # Set defaults only when not provided via query
                     if output_params.formats is None and getattr(api_def, "formats", None) is not None:
-                        output_params.formats = list(getattr(api_def, "formats"))  # type: ignore[assignment]
+                        output_params.formats = list(api_def.formats)  # type: ignore[assignment]
                     if output_params.include is None and getattr(api_def, "include", None) is not None:
-                        output_params.include = list(getattr(api_def, "include"))  # type: ignore[assignment]
+                        output_params.include = list(api_def.include)  # type: ignore[assignment]
                     if output_params.ts is None and getattr(api_def, "ts", None) is not None:
                         output_params.ts = api_def.ts  # type: ignore[assignment]
                     if output_params.summary is None and getattr(api_def, "summary", None) is not None:
@@ -179,8 +179,8 @@ class MainController(Controller):
         params = output_params if output_params else None
         if async_:
             # Enqueue background job using in-memory manager
-            from omoai.api.jobs import job_manager
             from omoai.api import services as _svc
+            from omoai.api.jobs import job_manager
 
             # Read upload now to decouple from request lifecycle
             file_bytes = await data.audio_file.read()
