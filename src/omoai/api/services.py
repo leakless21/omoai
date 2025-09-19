@@ -58,7 +58,15 @@ class PipelineResult(PipelineResponse):
 
 
 def _normalize_summary(raw_summary: Any) -> dict:
-    """Normalize summary into canonical schema with title, abstract, bullets."""
+    """Normalize summary into canonical schema with title, abstract, bullets, raw."""
+
+    def _clean_text(val: Any) -> str:
+        if isinstance(val, str):
+            return val.strip()
+        if val is None:
+            return ""
+        return str(val).strip()
+
     # If dict-like, coerce keys and shapes
     if isinstance(raw_summary, dict):
         title = (
@@ -73,6 +81,7 @@ def _normalize_summary(raw_summary: Any) -> dict:
             or raw_summary.get("Tóm tắt")
             or ""
         )
+        raw_text = _clean_text(raw_summary.get("raw"))
         # Accept common aliases for bullet list
         bullets = (
             raw_summary.get("bullets")
@@ -104,26 +113,41 @@ def _normalize_summary(raw_summary: Any) -> dict:
                 return {
                     "title": parsed.get("title", "") or str(title).strip(),
                     "abstract": parsed.get("abstract", ""),
+                    "summary": parsed.get("abstract", ""),
                     "bullets": parsed.get("bullets", []) or list(bullets or []),
+                    "raw": raw_text,
                 }
 
+        cleaned_abstract = _clean_text(abstract)
         return {
             "title": str(title).strip(),
-            "abstract": str(abstract).strip(),
+            "abstract": cleaned_abstract,
+            "summary": cleaned_abstract,
             "bullets": list(bullets or []),
+            "raw": raw_text,
         }
 
     # If raw string, parse labeled text
     if isinstance(raw_summary, str):
         parsed = _parse_labeled_summary(raw_summary)
+        cleaned_raw = raw_summary.strip()
         if parsed:
             return {
                 "title": parsed.get("title", ""),
                 "abstract": parsed.get("abstract", ""),
+                "summary": parsed.get("abstract", ""),
                 "bullets": parsed.get("bullets", []),
+                "raw": cleaned_raw,
             }
+        return {
+            "title": "",
+            "abstract": cleaned_raw,
+            "summary": cleaned_raw,
+            "bullets": [],
+            "raw": cleaned_raw,
+        }
     # Fallback
-    return {"title": "", "abstract": "", "bullets": []}
+    return {"title": "", "abstract": "", "summary": "", "bullets": [], "raw": ""}
 
 
 # Script-based helper implementations
@@ -343,7 +367,6 @@ def _postprocess_script(data: PostprocessRequest, timestamped_summary: bool = Fa
         return PostprocessResponse(
             summary=dict(final_obj.get("summary", {}) or {}),
             segments=list(final_obj.get("segments", []) or []),
-            summary_raw_text=str(final_obj.get("summary_raw_text", "")) or None,
         )
     except subprocess.CalledProcessError as e:
         raise AudioProcessingException(f"Post-processing failed: {e.stderr}") from e
@@ -598,15 +621,6 @@ async def _run_full_pipeline_script(
                         and "diffs" in final_obj
                     ):
                         api_json_for_save["diffs"] = final_obj["diffs"]
-                    if (
-                        output_params
-                        and getattr(output_params, "return_summary_raw", None)
-                        and final_obj.get("summary_raw_text")
-                    ):
-                        api_json_for_save["summary_raw_text"] = str(
-                            final_obj.get("summary_raw_text", "")
-                        ) or None
-
                     # Include VAD metadata when requested and available
                     try:
                         if (
@@ -768,9 +782,27 @@ async def _run_full_pipeline_script(
         filtered_segments = final_obj.get("segments", [])
         filtered_transcript_punct = final_obj.get("transcript_punct", "")
 
+        include_set: set[str] | None = (
+            set(output_params.include) if output_params.include else None
+        )
+
+        include_summary = True
+        raw_text_value = str(norm.get("raw", "") or "").strip()
+        allowed_summary_fields = (
+            set(output_params.summary_fields)
+            if output_params.summary_fields
+            else None
+        )
+        allowed_timestamped_fields = (
+            set(output_params.timestamped_summary_fields)
+            if output_params.timestamped_summary_fields
+            else None
+        )
+        filtered_timestamped_summary = final_obj.get("timestamped_summary")
+
         if output_params.summary:
             if output_params.summary == "none":
-                filtered_summary = {}
+                include_summary = False
             elif output_params.summary == "bullets":
                 filtered_summary = {"bullets": list(filtered_summary.get("bullets", []))}
             elif output_params.summary == "abstract":
@@ -781,16 +813,46 @@ async def _run_full_pipeline_script(
                     : output_params.summary_bullets_max
                 ]
 
-        if output_params.include:
-            include_set = set(output_params.include)
+        if include_set is not None:
+            if "summary" not in include_set:
+                include_summary = False
+            elif not include_summary and output_params.summary == "none":
+                include_summary = True
+
+        if not include_summary:
+            filtered_summary = {}
+        else:
+            include_raw = bool(getattr(output_params, "return_summary_raw", None)) and (
+                allowed_summary_fields is None or "raw" in allowed_summary_fields
+            )
+            working_summary = dict(filtered_summary)
+            if include_raw and raw_text_value:
+                working_summary["raw"] = raw_text_value
+            else:
+                working_summary.pop("raw", None)
+            if allowed_summary_fields is not None:
+                working_summary = {
+                    key: value
+                    for key, value in working_summary.items()
+                    if key in allowed_summary_fields
+                }
+            working_summary.pop("summary", None)
+            filtered_summary = working_summary
+
+        if include_set is not None:
             if "segments" not in include_set:
                 filtered_segments = []
             if "transcript_punct" not in include_set:
                 filtered_transcript_punct = ""
-            if "summary" not in include_set:
-                filtered_summary = {}
             if "timestamped_summary" not in include_set:
-                final_obj["timestamped_summary"] = None
+                filtered_timestamped_summary = None
+
+        if isinstance(filtered_timestamped_summary, dict) and allowed_timestamped_fields is not None:
+            filtered_timestamped_summary = {
+                key: value
+                for key, value in filtered_timestamped_summary.items()
+                if key in allowed_timestamped_fields
+            }
 
         quality_metrics = None
         diffs = None
@@ -829,14 +891,6 @@ async def _run_full_pipeline_script(
             except Exception:
                 diffs = None
 
-        # Ensure no legacy 'summary' alias field is present in summary dict
-        try:
-            if isinstance(filtered_summary, dict) and "summary" in filtered_summary:
-                filtered_summary = dict(filtered_summary)
-                filtered_summary.pop("summary", None)
-        except Exception:
-            pass
-
         # Optional metadata.vad passthrough
         meta_out = None
         try:
@@ -856,12 +910,7 @@ async def _run_full_pipeline_script(
             transcript_punct=filtered_transcript_punct,
             quality_metrics=quality_metrics,
             diffs=diffs,
-            summary_raw_text=(
-                str(final_obj.get("summary_raw_text", "")) or None
-                if getattr(output_params, "return_summary_raw", None)
-                else None
-            ),
-            timestamped_summary=final_obj.get("timestamped_summary"),
+            timestamped_summary=filtered_timestamped_summary,
             metadata=meta_out,
         )
         return (response_obj, raw_transcript)
@@ -889,23 +938,77 @@ async def _run_full_pipeline_script(
     filtered_summary2 = {
         "title": norm2.get("title", ""),
         "abstract": norm2.get("abstract", ""),
+        "summary": norm2.get("summary", ""),
         "bullets": list(norm2.get("bullets", [])),
     }
     filtered_segments2 = list(final_obj.get("segments", []) or [])
     filtered_transcript_punct2 = str(final_obj.get("transcript_punct", "")) or None
     filtered_timestamped_summary2 = final_obj.get("timestamped_summary")
+    allowed_summary_fields2 = (
+        set(output_params.summary_fields)
+        if output_params and getattr(output_params, "summary_fields", None)
+        else None
+    )
+    allowed_timestamped_fields2 = (
+        set(output_params.timestamped_summary_fields)
+        if output_params and getattr(output_params, "timestamped_summary_fields", None)
+        else None
+    )
 
-    # Apply include filtering if output_params is provided
-    if output_params and getattr(output_params, "include", None):
-        include_set = set(output_params.include)
-        if "summary" not in include_set:
-            filtered_summary2 = {}
-        if "segments" not in include_set:
+    include_set2: set[str] | None = (
+        set(output_params.include)
+        if output_params and getattr(output_params, "include", None)
+        else None
+    )
+
+    include_summary2 = True
+    if output_params and getattr(output_params, "summary", None) == "none":
+        include_summary2 = False
+
+    raw_text_value2 = str(norm2.get("raw", "") or "").strip()
+
+    if include_set2 is not None:
+        if "summary" not in include_set2:
+            include_summary2 = False
+        elif (
+            not include_summary2
+            and output_params
+            and getattr(output_params, "summary", None) == "none"
+        ):
+            include_summary2 = True
+        if "segments" not in include_set2:
             filtered_segments2 = []
-        if "transcript_punct" not in include_set:
+        if "transcript_punct" not in include_set2:
             filtered_transcript_punct2 = ""
-        if "timestamped_summary" not in include_set:
+        if "timestamped_summary" not in include_set2:
             filtered_timestamped_summary2 = None
+
+    if not include_summary2:
+        filtered_summary2 = {}
+    else:
+        include_raw = bool(
+            output_params and getattr(output_params, "return_summary_raw", None)
+        ) and (allowed_summary_fields2 is None or "raw" in allowed_summary_fields2)
+        working_summary2 = dict(filtered_summary2)
+        if include_raw and raw_text_value2:
+            working_summary2["raw"] = raw_text_value2
+        else:
+            working_summary2.pop("raw", None)
+        if allowed_summary_fields2 is not None:
+            working_summary2 = {
+                key: value
+                for key, value in working_summary2.items()
+                if key in allowed_summary_fields2
+            }
+        working_summary2.pop("summary", None)
+        filtered_summary2 = working_summary2
+
+    if isinstance(filtered_timestamped_summary2, dict) and allowed_timestamped_fields2 is not None:
+        filtered_timestamped_summary2 = {
+            key: value
+            for key, value in filtered_timestamped_summary2.items()
+            if key in allowed_timestamped_fields2
+        }
 
     response_obj = PipelineResponse(
         summary=filtered_summary2,
@@ -913,9 +1016,6 @@ async def _run_full_pipeline_script(
         transcript_punct=filtered_transcript_punct2,
         quality_metrics=quality_metrics,
         diffs=diffs,
-        summary_raw_text=(str(final_obj.get("summary_raw_text", "")) or None)
-        if (output_params and getattr(output_params, "return_summary_raw", None))
-        else None,
         timestamped_summary=filtered_timestamped_summary2,
         metadata=meta_out2,
     )
@@ -1112,4 +1212,3 @@ __all__ = [
     "run_full_pipeline",
     "warmup_services",
 ]
-

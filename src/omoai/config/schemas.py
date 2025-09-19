@@ -522,7 +522,7 @@ class APIDefaultsConfig(BaseModel):
     """
 
     formats: list[Literal["json", "text", "srt", "vtt", "md"]] | None = None
-    include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary"]] | None = None
+    include: list[Literal["transcript_raw", "transcript_punct", "segments", "timestamped_summary", "summary"]] | None = None
     ts: Literal["none", "s", "ms", "clock"] | None = None
     summary: Literal["bullets", "abstract", "both", "none"] | None = None
     summary_bullets_max: int | None = None
@@ -531,6 +531,8 @@ class APIDefaultsConfig(BaseModel):
     include_diffs: bool | None = None
     return_summary_raw: bool | None = None
     include_vad: bool | None = None
+    summary_fields: list[Literal["title", "abstract", "bullets", "raw"]] | None = None
+    timestamped_summary_fields: list[Literal["summary_text", "timestamps", "raw"]] | None = None
 
 
 class OutputConfig(BaseModel):

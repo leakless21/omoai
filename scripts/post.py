@@ -2021,14 +2021,6 @@ def main() -> None:
     }
 
     final = dict(asr)
-    # Capture raw summary text if available
-    summary_raw_text = None
-    try:
-        if isinstance(summary, dict) and summary.get("raw"):
-            summary_raw_text = str(summary.get("raw"))
-    except (ValueError, KeyError, TypeError):
-        summary_raw_text = None
-
     # --- Compute quality metrics & diffs ---
     try:
         original_text = (
@@ -2235,7 +2227,6 @@ def main() -> None:
             "segments": punct_segments,
             "transcript_punct": transcript_punct,
             "summary": summary,
-            "summary_raw_text": summary_raw_text,
             # New fields produced by postprocess for downstream consumers
             **({"quality_metrics": quality_metrics} if quality_metrics is not None else {}),
             **({"diffs": human_diff} if human_diff is not None else {}),
@@ -2405,4 +2396,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

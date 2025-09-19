@@ -142,6 +142,16 @@ class MainController(Controller):
                         and getattr(api_def, "include_vad", None) is not None
                     ):
                         output_params.include_vad = bool(api_def.include_vad)  # type: ignore[assignment]
+                    if (
+                        output_params.summary_fields is None
+                        and getattr(api_def, "summary_fields", None) is not None
+                    ):
+                        output_params.summary_fields = list(api_def.summary_fields)  # type: ignore[assignment]
+                    if (
+                        output_params.timestamped_summary_fields is None
+                        and getattr(api_def, "timestamped_summary_fields", None) is not None
+                    ):
+                        output_params.timestamped_summary_fields = list(api_def.timestamped_summary_fields)  # type: ignore[assignment]
                 # Additionally, support legacy summary defaults from output.summary
                 if sum_cfg:
                     if output_params.summary is None and getattr(sum_cfg, "mode", None):
@@ -242,15 +252,16 @@ class MainController(Controller):
                 wants_text = True
 
         if wants_text:
+            summary_data = getattr(result, "summary", {}) or {}
             # If raw summary requested and available, return only the raw LLM output
-            if return_summary_raw and getattr(result, "summary_raw_text", None):
-                raw_text = result.summary_raw_text or ""
-                return Response(raw_text, media_type="text/plain; charset=utf-8")
+            if return_summary_raw:
+                raw_text = str(summary_data.get("raw", "") or "").strip()
+                if raw_text:
+                    return Response(raw_text, media_type="text/plain; charset=utf-8")
             # Otherwise compose plain text with transcript and structured summary (title, abstract, bullets)
             parts: list[str] = []
             if result.transcript_punct:
                 parts.append(result.transcript_punct)
-            summary_data = getattr(result, "summary", {}) or {}
             title = summary_data.get("title", "")
             abstract_text = summary_data.get("summary", "") or summary_data.get(
                 "abstract", ""

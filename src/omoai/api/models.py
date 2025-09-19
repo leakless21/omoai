@@ -40,6 +40,8 @@ class OutputFormatParams(BaseModel):
     summary: Literal["bullets", "abstract", "both", "none"] | None = None
     summary_bullets_max: int | None = None
     summary_lang: str | None = None
+    summary_fields: list[Literal["title", "abstract", "bullets", "raw"]] | None = None
+    timestamped_summary_fields: list[Literal["summary_text", "timestamps", "raw"]] | None = None
 
     # Quality metrics and diff options
     include_quality_metrics: bool | None = None
@@ -89,7 +91,6 @@ class PipelineResponse(BaseModel):
     quality_metrics: QualityMetrics | None = None
     diffs: HumanReadableDiff | None = None
     # Optional raw LLM summary text (unparsed), included only on request
-    summary_raw_text: str | None = None
     # Optional metadata (e.g., VAD) included only when requested
     # Optional timestamped summary with [HH:MM:SS] formatted timestamps
     # Can include an optional "raw" field with the unparsed LLM response
@@ -112,5 +113,3 @@ class PostprocessResponse(BaseModel):
     segments: list  # Include segments with punctuated text
     quality_metrics: QualityMetrics | None = None
     diffs: HumanReadableDiff | None = None
-    # Optional raw LLM summary text (unparsed)
-    summary_raw_text: str | None = None
