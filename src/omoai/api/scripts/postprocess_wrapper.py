@@ -88,11 +88,31 @@ def run_postprocess_script(
     env["MULTIPROCESSING_START_METHOD"] = "spawn"
 
     # Add CUDA isolation to prevent re-initialization issues
-    env["CUDA_VISIBLE_DEVICES"] = env.get(
-        "CUDA_VISIBLE_DEVICES", "0"
-    )  # Ensure consistent GPU visibility
-    env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"  # Force vLLM to use spawn method
-    env["TOKENIZERS_PARALLELISM"] = "false"  # Prevent tokenizer warnings in subprocess
+    env["CUDA_VISIBLE_DEVICES"] = env.get("CUDA_VISIBLE_DEVICES", "0")
+    env["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"  # vLLM multiprocessing method
+    env["TOKENIZERS_PARALLELISM"] = "false"  # Reduce tokenizer thread overhead
+
+    # Startup-time win: ensure HF cache on fast local disk to avoid repeated downloads
+    # Prefer user-provided env; otherwise default to project_root/models/hf-cache
+    try:
+        default_hf_cache = project_root / "models" / "hf-cache"
+        default_hf_cache.mkdir(parents=True, exist_ok=True)
+        env.setdefault("HF_HOME", str(default_hf_cache))
+        env.setdefault("TRANSFORMERS_CACHE", str(default_hf_cache))
+    except Exception:
+        pass
+
+    # PyTorch CUDA allocator tuning (per PyTorch docs) to reduce fragmentation and
+    # speed up pinned memory operations during per-request launches
+    # Reference: PYTORCH_CUDA_ALLOC_CONF options (expandable_segments, gc threshold, pinned_*).
+    if "PYTORCH_CUDA_ALLOC_CONF" not in env:
+        env["PYTORCH_CUDA_ALLOC_CONF"] = (
+            "expandable_segments:True,"
+            "garbage_collection_threshold:0.8,"
+            "pinned_use_cuda_host_register:True,"
+            "pinned_num_register_threads:8,"
+            "pinned_use_background_threads:True"
+        )
 
     logger.info(f"Running postprocess command: {' '.join(cmd)}")
     logger.info(f"Working directory: {project_root}")
