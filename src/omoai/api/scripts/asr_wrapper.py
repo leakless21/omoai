@@ -7,10 +7,10 @@ tests that call the wrapper directly.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
-import os
 
 try:
     # Prefer centralized config; fall back gracefully if unavailable
