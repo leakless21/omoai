@@ -8,10 +8,12 @@ A production-ready pipeline to transcribe and summarize long-form audio, with a 
 - **Long-audio support**: Chunked decoding for multi-hour recordings.
 - **Advanced Punctuation & Capitalization**: LLM-based punctuation and capitalization.
 - **Summarization**: Abstractive and extractive summarization with timestamps.
+- **Timestamped Summary**: Key topics with timestamps extracted from the transcript.
 - **Config-driven**: A single `config.yaml` controls all aspects of the pipeline.
-- **Multiple Output Formats**: Supports JSON, plain text, SRT, and VTT.
+- **Multiple Output Formats**: Supports JSON, plain text, SRT, VTT, and Markdown.
 - **CLI & REST API**: Can be run locally from the command line or as a web service.
 - **Voice Activity Detection (VAD)**: Optional VAD pre-segmentation to skip silence and improve performance on long audio files.
+- **CUDA Memory Optimization**: Advanced memory management for GPU efficiency.
 
 ## Architecture
 
@@ -19,7 +21,7 @@ A production-ready pipeline to transcribe and summarize long-form audio, with a 
 2.  **VAD (Optional)**: `silero-vad` or `webrtcvad` splits the audio into speech segments.
 3.  **ASR**: Transcribes the audio with ChunkFormer, producing a raw transcript with segment-level timestamps.
 4.  **Alignment**: A wav2vec2 model is used to generate word-level timestamps.
-5.  **Post-processing**: An LLM adds punctuation and generates a summary.
+5.  **Post-processing**: An LLM adds punctuation, generates a summary, and extracts timestamped key topics.
 
 For a more detailed explanation of the architecture, see the [Architecture Documentation](docs/ARCHITECTURE.md).
 
@@ -46,10 +48,19 @@ For a more detailed explanation of the architecture, see the [Architecture Docum
 
 3.  Prepare the models:
     *   Place the Chunkformer checkpoint at `models/chunkformer/chunkformer-large-vie` (or update `paths.chunkformer_checkpoint` in `config.yaml`).
+    *   The LLM model `cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit` will be automatically downloaded on first use.
 
 ## Configuration
 
 All settings are in `config.yaml`. For a detailed explanation of all the configuration options, please refer to the [Component: Configuration](docs/COMPONENT_CONFIGURATION_DOCS.md) documentation.
+
+## Configuration Highlights
+
+- **LLM Configuration**: Model selection, quantization, memory utilization, and prompt customization
+- **Output Formats**: JSON, text, SRT, VTT, Markdown with comprehensive control over content
+- **API Settings**: Response format defaults, timeout settings, and subprocess streaming
+- **Memory Optimization**: CUDA allocator configuration and multiprocessing settings
+- **VAD Options**: Multiple VAD methods with fine-tuned parameters
 
 ## Quickstart (CLI)
 
@@ -79,6 +90,16 @@ The API will be available at `http://localhost:8000`.
 
 For more details on the API, please refer to the [Component: API](docs/COMPONENT_API_DOCS.md) documentation.
 
+## Memory Optimization
+
+The system includes advanced CUDA memory management features:
+
+- **Expandable segments**: Reduces memory fragmentation
+- **Garbage collection**: Automatic memory cleanup at 80% utilization
+- **Pinned memory**: Optimized host-device transfers with background threads
+- **Multiprocessing**: Spawn method for CUDA compatibility
+- **vLLM worker optimization**: Dedicated multiprocessing settings for LLM inference
+
 ## Troubleshooting
 
 -   **`ffmpeg` not found**: Install `ffmpeg` using your OS package manager and ensure it is in your `PATH`.
@@ -87,6 +108,8 @@ For more details on the API, please refer to the [Component: API](docs/COMPONENT
     *   Lower `llm.max_num_seqs` and `llm.max_num_batched_tokens`.
     *   Reduce `asr.total_batch_duration_s` or `gpu_memory_utilization`.
     *   Use quantized models (e.g., AWQ) or set `quantization: auto`.
+    *   Check `PYTORCH_CUDA_ALLOC_CONF` environment variable for memory optimization settings.
+-   **Multiprocessing issues**: Ensure `MULTIPROCESSING_START_METHOD=spawn` is set for CUDA compatibility.
 
 ## Documentation
 
@@ -108,38 +131,9 @@ Một pipeline xử lý âm thanh để nhận dạng giọng nói (ASR), chấm
 -   **Hỗ trợ audio dài**: Xử lý các file âm thanh dài hàng giờ.
 -   **Chấm câu & viết hoa nâng cao**: Tự động chấm câu và viết hoa bằng LLM.
 -   **Tóm tắt**: Tóm tắt nội dung văn bản với dấu thời gian.
+-   **Tóm tắt có dấu thời gian**: Trích xuất chủ đề chính với dấu thời gian từ bản ghi.
 -   **Cấu hình linh hoạt**: Mọi thứ được điều khiển qua file `config.yaml`.
--   **Nhiều định dạng đầu ra**: Hỗ trợ JSON, text, SRT, và VTT.
+-   **Nhiều định dạng đầu ra**: Hỗ trợ JSON, text, SRT, VTT, và Markdown.
 -   **CLI & REST API**: Chạy trực tiếp từ dòng lệnh hoặc như một dịch vụ web.
 -   **Phát hiện giọng nói (VAD)**: Tùy chọn VAD để bỏ qua khoảng lặng và tăng tốc độ xử lý.
-
-### Yêu cầu
-
--   Python 3.11+
--   `ffmpeg`
--   GPU NVIDIA với CUDA (khuyến nghị)
-
-### Cài đặt
-
-```bash
-git clone <repository-url>
-cd <repository-directory>
-uv venv && source .venv/bin/activate
-uv pip install -e .
-```
-
-### Chạy nhanh (CLI)
-
-```bash
-uv run start data/input/audio.mp3
-```
-
-### REST API
-
-Khởi động server:
-
-```bash
-uv run api
-```
-
-Xem chi tiết các endpoint trong [Component: API](docs/COMPONENT_API_DOCS.md).
+-   **Tối ưu hóa bộ nhớ CUDA**: Quản lý bộ nhớ GPU hiệu quả.

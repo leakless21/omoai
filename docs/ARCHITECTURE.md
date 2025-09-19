@@ -85,7 +85,7 @@ The OmoAI system is designed as a modular, multi-stage pipeline that processes a
     *   **Punctuation:** Adding correct punctuation and capitalization to the transcript.
     *   **Summarization:** Generating a concise summary of the transcript.
     *   **Timestamped Summary:** Creating a list of key topics with their corresponding timestamps.
-*   **Location:** The post-processing logic is handled by `scripts/post.py`, with prompts and configurations defined in `config.yaml`.
+*   **Location:** The post-processing logic is handled by `scripts/post.py`, with prompts and configurations defined in `config.yaml`. The API uses `src/omoai/api/scripts/postprocess_wrapper.py` to manage the script execution with proper working directory and environment settings.
 
 ### 3.6. Configuration
 
@@ -113,10 +113,35 @@ The OmoAI system is designed as a modular, multi-stage pipeline that processes a
 4.  The VAD model detects speech segments, which are then passed to the ASR model.
 5.  The ChunkFormer ASR model transcribes the audio segments, generating a raw transcript with segment-level timestamps.
 6.  The alignment module processes the raw transcript and the audio to produce word-level timestamps.
-7.  The post-processing script sends the transcript to the LLM for punctuation and summarization.
-8.  The final results, including the punctuated transcript, summary, and detailed timestamp information, are compiled into a JSON object.
+7.  The post-processing script sends the transcript to the LLM for punctuation, summarization, and timestamped topic extraction.
+8.  The final results, including the punctuated transcript, summary, timestamped topics, and detailed timestamp information, are compiled into a JSON object.
 9.  The API server returns the JSON object to the client and, if configured, saves the output to disk in various formats (JSON, SRT, VTT, etc.).
 
 ## 5. Deployment Considerations
 
 The application is designed to be containerized using Docker for easy deployment and scalability. A `Dockerfile` can be created to package the application and all its dependencies. The containerized application can then be deployed on any cloud provider or on-premise infrastructure that supports Docker.
+
+## 6. Script-Based Pipeline Architecture
+
+The system uses a script-based approach for better isolation and resource management:
+
+- **Preprocessing**: Handled by `scripts/preprocess.py` via API service layer
+- **ASR**: Orchestrated by `scripts/asr.py` via `src/omoai/api/scripts/asr_wrapper.py`
+- **Post-processing**: Managed by `scripts/post.py` via `src/omoai/api/scripts/postprocess_wrapper.py`
+
+This architecture provides:
+- **Process isolation**: Each major component runs in separate processes
+- **Resource management**: Independent memory and GPU context for each stage
+- **Fault tolerance**: Failures in one component don't affect others
+- **CUDA compatibility**: Proper multiprocessing setup with spawn method
+
+## 7. Memory Optimization Features
+
+The system includes advanced CUDA memory management:
+
+- **Expandable segments**: Reduces memory fragmentation (PYTORCH_CUDA_ALLOC_CONF)
+- **Garbage collection**: Automatic cleanup at 80% utilization threshold
+- **Pinned memory**: Optimized host-device transfers with background threads
+- **Multiprocessing**: Spawn method enforced for CUDA compatibility
+- **vLLM worker optimization**: Dedicated multiprocessing settings for LLM inference
+- **GPU cache clearing**: Automatic VRAM cleanup between pipeline stages
